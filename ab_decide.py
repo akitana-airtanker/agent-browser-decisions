@@ -44,6 +44,26 @@ LINE = re.compile(
 CLIENT = httpx.Client(http2=True, timeout=30)
 
 
+class Metrics:
+    """Per-step wall time by category, plus decision usage. Reset by run_plan for each step."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.ms, self.calls, self.tokens = {}, {}, 0
+
+    def add(self, category, seconds):
+        self.ms[category] = self.ms.get(category, 0) + seconds * 1000
+        self.calls[category] = self.calls.get(category, 0) + 1
+
+    def summary(self):
+        return {"ms": {k: round(v) for k, v in self.ms.items()}, "calls": dict(self.calls), "tokens": self.tokens}
+
+
+METRICS = Metrics()
+
+
 # ---------- pure core ----------
 
 
@@ -138,8 +158,10 @@ def command_for(step, ref):
 # ---------- adapters ----------
 
 
-def ab(*args, check=True):
+def ab(*args, check=True, category="browser"):
+    started = time.perf_counter()
     result = subprocess.run(["agent-browser", *args], capture_output=True, text=True, timeout=60, check=False)
+    METRICS.add(category, time.perf_counter() - started)
     if check and result.returncode != 0:
         raise RuntimeError(
             f"agent-browser {' '.join(args[:2])} failed: {result.stderr.strip() or result.stdout.strip()}"
@@ -147,116 +169,144 @@ def ab(*args, check=True):
     return result.stdout
 
 
-def observe():
-    data = json.loads(ab("snapshot", "-i", "--json"))["data"]
-    return parse_snapshot(data["snapshot"]), data.get("origin", "")
+def observe(category="observe"):
+    data = json.loads(ab("snapshot", "-i", "--json", category=category))["data"]
+    raw = data["snapshot"]
+    return {"url": data.get("origin", ""), "raw": raw, "elements": parse_snapshot(raw)}
 
 
 def decide(request):
+    started = time.perf_counter()
     response = CLIENT.post(
         os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/decisions",
         headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
         json=request,
     )
+    METRICS.add("decision", time.perf_counter() - started)
     response.raise_for_status()
-    return response.json()
+    body = response.json()
+    METRICS.tokens += body.get("usage", {}).get("input_tokens", 0)
+    return body
 
 
-def resolve(step, goal, mode, settle_s=3.0, exclude=frozenset()):
-    """Return (element, tier, info). Polls briefly so elements that appear after the last action count."""
+def resolve(step, goal, mode, settle_s=3.0, exclude=frozenset(), poll_s=0.1):
+    """-> (element | None, tier, info, page). Polls so elements that appear after the last action count."""
     deadline = time.perf_counter() + settle_s
     previous = None
     while True:
-        elements, url = observe()
-        elements = [e for e in elements if e["ref"] not in exclude]
+        page = observe()
+        elements = [e for e in page["elements"] if e["ref"] not in exclude]
         candidates = compatible(step, elements)
-        signature = [(e["ref"], e["name"]) for e in candidates]
         if mode == "decide":
+            signature = [(e["ref"], e["name"]) for e in candidates]
             if (candidates and signature == previous) or time.perf_counter() >= deadline:
                 break
             previous = signature
-            time.sleep(0.2)
-            continue
-        hit, status = match_label(step, elements)
-        if hit:
-            return hit, 1, {}
-        if status == "ambiguous" or time.perf_counter() >= deadline:
-            break
-        time.sleep(0.25)
+        else:
+            hit, status = match_label(step, elements)
+            if hit:
+                return hit, 1, {}, page
+            if status == "ambiguous" or time.perf_counter() >= deadline:
+                break
+        time.sleep(poll_s)
     if len(candidates) < 2:
-        return (candidates[0], 2, {"single": True}) if candidates else (None, 3, {"reason": "no candidates"})
-    started = time.perf_counter()
-    for attempt in range(2):
-        ref, info = chosen_ref(decide(decision_request(step, goal, candidates, url)))
+        if candidates:
+            return candidates[0], 2, {"single": True}, page
+        return None, 3, {"reason": "no candidates"}, page
+    info = None
+    for _ in range(2):
+        ref, info = chosen_ref(decide(decision_request(step, goal, candidates, page["url"])))
         if ref:
-            element = next(e for e in candidates if e["ref"] == ref)
-            return element, 2, {"confidence": info, "decision_ms": round((time.perf_counter() - started) * 1000)}
-        elements, url = observe()
-        candidates = compatible(step, [e for e in elements if e["ref"] not in exclude])
-    return None, 3, {"reason": f"decision {info}"}
+            return next(e for e in candidates if e["ref"] == ref), 2, {"confidence": info}, page
+        page = observe()
+        candidates = compatible(step, [e for e in page["elements"] if e["ref"] not in exclude])
+    return None, 3, {"reason": f"decision {info}"}, page
 
 
-def page_signature():
-    data = json.loads(ab("snapshot", "-i", "--json"))["data"]
-    return data.get("origin", ""), data["snapshot"]
+def document(url):
+    """URL without the fragment: an in-page anchor is not a navigation."""
+    return url.split("#", 1)[0]
 
 
-def reacted(baseline, wait_s=1.0):
-    """The UI must visibly change after an action; otherwise the input was probably dropped."""
+def poll(predicate, wait_s, interval_s=0.05):
     deadline = time.perf_counter() + wait_s
-    while time.perf_counter() < deadline:
-        time.sleep(0.1)
+    while True:
+        if predicate():
+            return True
+        if time.perf_counter() >= deadline:
+            return False
+        time.sleep(interval_s)
+
+
+def changed_since(page):
+    def predicate():
         try:
-            if page_signature() != baseline:
-                return True
+            now = observe("check")
         except (RuntimeError, json.JSONDecodeError, KeyError):
             return True  # navigating
-    return False
+        return (document(now["url"]), now["raw"]) != (document(page["url"]), page["raw"])
+
+    return predicate
 
 
-def current_url():
-    """Document URL without the fragment: an in-page anchor is not a navigation."""
-    return ab("get", "url").strip().split("#", 1)[0]
+def effect(step, element, page):
+    """-> "ok" | "no_effect" (input probably dropped) | "wrong_target" (a link that went nowhere).
 
+    Checks are per action and cheap: a field value, a checked state, the document URL, or a changed snapshot.
+    """
+    action, ref = step["action"], f"@{element['ref']}"
+    if action == "fill":
+        same = poll(lambda: ab("get", "value", ref, check=False, category="check").strip() == step["value"], 0.5)
+        return "ok" if same else "no_effect"
+    if action == "check":
+        checked = poll(lambda: ab("is", "checked", ref, check=False, category="check").strip() == "true", 0.5)
+        return "ok" if checked else "no_effect"
+    if action == "select":
+        return "ok"
+    if element["role"] == "link" and step.get("navigates", True):
 
-def navigated(before, wait_s=1.2):
-    deadline = time.perf_counter() + wait_s
-    while time.perf_counter() < deadline:
-        if current_url() != before:
-            return True
-        time.sleep(0.2)
-    return False
+        def moved():
+            return document(ab("get", "url", category="check").strip()) != document(page["url"])
+
+        return "ok" if poll(moved, 1.2, 0.1) else "wrong_target"
+    return "ok" if poll(changed_since(page), 1.0) else "no_effect"
 
 
 def run_plan(steps, goal, mode, retries=2):
-    """A link click that does not navigate is treated as a wrong target and re-resolved without it."""
+    """Resolve -> act -> check effect. A dropped input is repeated once; a dead link is excluded and re-resolved."""
     log = []
     for index, step in enumerate(steps, 1):
         started = time.perf_counter()
-        excluded, tiers, no_reaction = set(), [], 0
+        METRICS.reset()
+        excluded, tiers, repeats = set(), [], 0
         while True:
-            element, tier, info = resolve(step, goal, "decide" if step.get("decide") else mode, exclude=excluded)
+            element, tier, info, page = resolve(step, goal, "decide" if step.get("decide") else mode, exclude=excluded)
             tiers.append(tier)
             entry = {"step": index, "tier": max(tiers), "tiers": tiers, "target": step["target"], **info}
             if element is None:
-                log.append(entry | {"ok": False})
+                log.append(entry | {"ok": False, "metrics": METRICS.summary()})
                 return log, False
-            before = current_url() if element["role"] == "link" and step["action"] == "click" else None
-            baseline = page_signature()
             try:
-                ab(*command_for(step, element["ref"]))
+                ab(*command_for(step, element["ref"]), category="act")
             except RuntimeError as error:
-                log.append(entry | {"ok": False, "error": str(error)[:200]})
+                log.append(entry | {"ok": False, "error": str(error)[:200], "metrics": METRICS.summary()})
                 return log, False
-            if not reacted(baseline) and no_reaction < 1:
-                no_reaction += 1  # dropped input: resolve again and repeat once
+            outcome = effect(step, element, page)
+            if outcome == "no_effect" and repeats < 1:
+                repeats += 1
                 continue
-            if before is None or navigated(before) or len(excluded) >= retries:
-                break
-            excluded.add(element["ref"])
-        entry |= {"ok": True, "chose": element["name"][:80], "retried": len(excluded), "no_reaction": no_reaction}
-        if step.get("after_ms"):
-            time.sleep(step["after_ms"] / 1000)
-        entry["ms"] = round((time.perf_counter() - started) * 1000)
+            if outcome == "wrong_target" and len(excluded) < retries:
+                excluded.add(element["ref"])
+                continue
+            break
+        entry |= {
+            "ok": True,
+            "chose": element["name"][:80],
+            "effect": outcome,
+            "excluded": len(excluded),
+            "repeats": repeats,
+            "ms": round((time.perf_counter() - started) * 1000),
+            "metrics": METRICS.summary(),
+        }
         log.append(entry)
     return log, True

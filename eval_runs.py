@@ -19,7 +19,8 @@ FLIGHTS_JS = """(() => {
   const checks = {search_page: u.pathname === '/travel/flights/search', one_way: oneWay, origin: from === 'Zürich',
     destination: to === 'London', date: decoded.includes('2026-11-20'),
     results: flights.length > 0 && flights.every(l => l.includes('November 20'))};
-  return {passed: Object.values(checks).every(Boolean), checks, flights: flights.length};
+  const siteError = /Oops, something went wrong|No results returned/.test(document.body.innerText);
+  return {passed: Object.values(checks).every(Boolean), checks, flights: flights.length, site_error: siteError};
 })()"""
 
 FORM_JS = """(() => {
@@ -147,11 +148,26 @@ def run_once(name, task, mode):
     log, completed = run_plan(task["steps"], task["goal"], mode)
     exec_ms = round((time.perf_counter() - started) * 1000)
     result, verify_ms = verify(task, expected)
+    totals = {}
+    for entry in log:
+        for category, ms in entry.get("metrics", {}).get("ms", {}).items():
+            totals[category] = totals.get(category, 0) + ms
+    checks = result.get("checks") or {}
+    operations_ok = bool(checks) and all(v for k, v in checks.items() if k != "results")
+    if result.get("passed"):
+        outcome = "passed"
+    elif result.get("site_error") and operations_ok:
+        outcome = "site_error"
+    else:
+        outcome = "failed"
     return {
         "task": name,
         "mode": mode,
         "passed": bool(result.get("passed")),
+        "outcome": outcome,
         "completed": completed,
+        "breakdown_ms": totals,
+        "tokens": sum(e.get("metrics", {}).get("tokens", 0) for e in log),
         "exec_ms": exec_ms,
         "verify_wait_ms": verify_ms,
         "verify": result,
@@ -177,7 +193,7 @@ def main():
             with Path(args.output).open("a") as file:
                 file.write(json.dumps(row, ensure_ascii=False) + "\n")
             print(
-                f"{name:9} {args.mode:6} run{row['run']} passed={row['passed']!s:5} "
+                f"{name:9} {args.mode:6} run{row['run']} {row.get('outcome', 'error'):10} "
                 f"exec={row.get('exec_ms', 0) / 1000:5.1f}s tiers={row.get('tiers')} err={row.get('error')}",
                 flush=True,
             )
