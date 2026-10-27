@@ -104,9 +104,10 @@ def parse_snapshot(text):
     return elements
 
 
-def compatible(step, elements):
+def compatible(step, elements, use_role=True):
+    """Elements the action can apply to. The plan's role is a guess on unseen pages, so callers may ignore it."""
     roles = ROLES[step["action"]]
-    wanted = step.get("role")
+    wanted = step.get("role") if use_role else None
     return [e for e in elements if e["role"] in roles and (not wanted or e["role"] == wanted)]
 
 
@@ -241,8 +242,11 @@ def resolve(step, goal, mode, settle_s=3.0, exclude=frozenset(), poll_s=0.05):
         stable = previous is not None and page["raw"] == previous
         previous = page["raw"]
         elements = [e for e in page["elements"] if e["ref"] not in exclude]
-        candidates = compatible(step, elements)
         expired = time.perf_counter() >= deadline
+        # A role in the plan also means "wait until such elements exist"; relax it only if none ever appear.
+        candidates = compatible(step, elements)
+        if not candidates and expired:
+            candidates = compatible(step, elements, use_role=False)
         if mode == "decide":
             if (candidates and stable) or expired:
                 break
@@ -263,7 +267,8 @@ def resolve(step, goal, mode, settle_s=3.0, exclude=frozenset(), poll_s=0.05):
         if ref:
             return next(e for e in candidates if e["ref"] == ref), 2, {"confidence": info}, page
         page = observe()
-        candidates = compatible(step, [e for e in page["elements"] if e["ref"] not in exclude])
+        remaining = [e for e in page["elements"] if e["ref"] not in exclude]
+        candidates = compatible(step, remaining) or compatible(step, remaining, use_role=False)
     return None, 3, {"reason": f"decision {info}"}, page
 
 
@@ -331,10 +336,33 @@ def run_plan(steps, goal, mode, retries=2):
         started = time.perf_counter()
         METRICS.reset()
         excluded, tiers, repeats = set(), [], 0
+        if step["action"] == "press":  # a key press needs no target; it goes to the focused element
+            page = observe()
+            ab("press", step["value"], category="act")
+            outcome = "ok" if poll(changed_since(page), 1.0) else "no_effect"
+            log.append(
+                {
+                    "step": index,
+                    "tier": 0,
+                    "target": step["value"],
+                    "ok": True,
+                    "effect": outcome,
+                    "ms": round((time.perf_counter() - started) * 1000),
+                    "metrics": METRICS.summary(),
+                }
+            )
+            continue
         while True:
             element, tier, info, page = resolve(step, goal, "decide" if step.get("decide") else mode, exclude=excluded)
             tiers.append(tier)
-            entry = {"step": index, "tier": max(tiers), "tiers": tiers, "target": step["target"], **info}
+            entry = {
+                "step": index,
+                "tier": max(tiers),
+                "tiers": tiers,
+                "target": step["target"],
+                "url": page["url"],
+                **info,
+            }
             if element is None:
                 log.append(entry | {"ok": False, "metrics": METRICS.summary()})
                 return log, False

@@ -39,6 +39,73 @@ def S(action, target, value=None, **extra):
     return {"action": action, "target": target, **({"value": value} if value is not None else {}), **extra}
 
 
+UNSEEN = {
+    "saucedemo": {
+        "url": "https://www.saucedemo.com/",
+        "goal": "Log in as standard_user, add the Sauce Labs Backpack to the cart, and open the cart.",
+        "steps": [
+            S("fill", "Username", "standard_user"),
+            S("fill", "Password", "secret_sauce"),
+            S("click", "Login", role="button", expect="navigation"),
+            S("click", "Add to cart", role="button", describe="the 'Add to cart' button of 'Sauce Labs Backpack'"),
+            S("click", "Shopping cart", describe="the shopping cart link or icon in the header"),
+        ],
+        "verify": "(() => ({passed: location.pathname === '/cart.html' && "
+        "document.body.innerText.includes('Sauce Labs Backpack')}))()",
+    },
+    "todomvc": {
+        "url": "https://todomvc.com/examples/react/dist/",
+        "goal": "Add the todos 'Buy milk' and 'Walk dog', then mark 'Buy milk' as completed.",
+        "steps": [
+            S("fill", "New Todo Input", "Buy milk"),
+            S("press", "Enter", "Enter"),
+            S("fill", "New Todo Input", "Walk dog"),
+            S("press", "Enter", "Enter"),
+            S("check", "Buy milk", role="checkbox", describe="the completion checkbox of the 'Buy milk' todo"),
+        ],
+        "verify": "(() => { const li = [...document.querySelectorAll('.todo-list li')];"
+        " const t = li.map(x => [x.innerText.trim(), x.classList.contains('completed')]);"
+        " return {passed: t.length === 2 && t.some(([n, c]) => n === 'Buy milk' && c)"
+        " && t.some(([n, c]) => n === 'Walk dog' && !c), todos: t}; })()",
+    },
+    "books": {
+        "url": "https://books.toscrape.com/",
+        "goal": "Open the Travel category, then open the first book listed there.",
+        "steps": [
+            S("click", "Travel", role="link"),
+            S(
+                "click",
+                "first book",
+                role="link",
+                decide=True,
+                describe="the title link of the FIRST book in the product list",
+            ),
+        ],
+        "verify": "(() => { const b = document.querySelector('.breadcrumb')?.innerText || '';"
+        " const title = document.querySelector('.product_main h1')?.innerText || '';"
+        " return {passed: b.includes('Travel') && /only the himalayas/i.test(title), title}; })()",
+    },
+    "pypi": {
+        "url": "https://pypi.org/",
+        "goal": "Search PyPI for httpx and open the httpx project page.",
+        "steps": [
+            S("fill", "PyPIを検索", "httpx"),
+            S("click", "検索", role="button", expect="navigation"),
+            S("click", "httpx", role="link", describe="the search result for the package named exactly 'httpx'"),
+        ],
+        "verify": "(() => ({passed: location.pathname === '/project/httpx/', url: location.href}))()",
+    },
+    "quotes": {
+        "url": "https://quotes.toscrape.com/",
+        "goal": "Open the 'inspirational' tag, then go to its second page.",
+        "steps": [
+            S("click", "inspirational", role="link"),
+            S("click", "Next", role="link"),
+        ],
+        "verify": "(() => ({passed: location.pathname === '/tag/inspirational/page/2/', url: location.href}))()",
+    },
+}
+
 TASKS = {
     "flights": {
         "url": "https://www.google.com/travel/flights?hl=en",
@@ -121,6 +188,9 @@ TASKS = {
 }
 
 
+TASKS |= UNSEEN
+
+
 def evaluate(expression):
     out = ab("eval", expression, check=False).strip()
     try:
@@ -143,6 +213,10 @@ def verify(task, expected, budget_s=20.0):
 
 
 def run_once(name, task, mode):
+    ab("open", task["url"])
+    for kind in ("local", "session"):  # runs must not inherit cart or todo state from earlier runs
+        ab("storage", kind, "clear", check=False)
+    ab("cookies", "clear", check=False)
     ab("open", task["url"])
     ab("wait", "1500")
     expected = evaluate(task["prepare"]) if task.get("prepare") else None
