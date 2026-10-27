@@ -189,24 +189,25 @@ def decide(request):
     return body
 
 
-def resolve(step, goal, mode, settle_s=3.0, exclude=frozenset(), poll_s=0.1):
+def resolve(step, goal, mode, settle_s=3.0, exclude=frozenset(), poll_s=0.05):
     """-> (element | None, tier, info, page). Polls so elements that appear after the last action count."""
     deadline = time.perf_counter() + settle_s
     previous = None
     while True:
         page = observe()
+        stable = previous is not None and page["raw"] == previous
+        previous = page["raw"]
         elements = [e for e in page["elements"] if e["ref"] not in exclude]
         candidates = compatible(step, elements)
+        expired = time.perf_counter() >= deadline
         if mode == "decide":
-            signature = [(e["ref"], e["name"]) for e in candidates]
-            if (candidates and signature == previous) or time.perf_counter() >= deadline:
+            if (candidates and stable) or expired:
                 break
-            previous = signature
         else:
             hit, status = match_label(step, elements)
-            if hit:
+            if hit and (stable or expired):  # never act on a page that is still animating
                 return hit, 1, {}, page
-            if status == "ambiguous" or time.perf_counter() >= deadline:
+            if (status == "ambiguous" and stable) or expired:
                 break
         time.sleep(poll_s)
     if len(candidates) < 2:
@@ -263,12 +264,12 @@ def effect(step, element, page):
         return "ok" if checked else "no_effect"
     if action == "select":
         return "ok"
-    if element["role"] == "link" and step.get("navigates", True):
+    if step.get("expect") == "navigation" or (element["role"] == "link" and step.get("navigates", True)):
 
         def moved():
             return document(ab("get", "url", category="check").strip()) != document(page["url"])
 
-        return "ok" if poll(moved, 1.2, 0.1) else "wrong_target"
+        return "ok" if poll(moved, 3.0, 0.1) else "wrong_target"
     return "ok" if poll(changed_since(page), 1.0) else "no_effect"
 
 
@@ -295,7 +296,10 @@ def run_plan(steps, goal, mode, retries=2):
             if outcome == "no_effect" and repeats < 1:
                 repeats += 1
                 continue
-            if outcome == "wrong_target" and len(excluded) < retries:
+            if outcome == "wrong_target" and (tier == 1 or step.get("expect") == "navigation") and repeats < 1:
+                repeats += 1  # a unique label match is right; the click was probably swallowed
+                continue
+            if outcome == "wrong_target" and tier == 2 and len(excluded) < retries:
                 excluded.add(element["ref"])
                 continue
             break
