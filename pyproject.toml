@@ -1,6 +1,8 @@
 [project]
 name = "ab-decide"
 version = "0.1.0"
+description = "Run written browser plans through agent-browser, resolving each step by label match or a decision model."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["httpx[http2]>=0.28"]
 

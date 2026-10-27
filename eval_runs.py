@@ -1,4 +1,4 @@
-"""uv run --env-file ../jev-ultrafast/.env python eval_runs.py --mode label|decide --runs 3 [--task X]"""
+"""uv run --env-file .env python eval_runs.py --mode label|decide --runs 3 [--task X]"""
 
 import argparse
 import json

@@ -39,12 +39,20 @@ it is relaxed only if none appear within 3 s.
 
 Steps act only on a settled page: two consecutive identical snapshots.
 
+## Requirements
+
+- [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH`, connected to a browser
+  (for example `agent-browser connect 9222` to a Chrome started with `--remote-debugging-port=9222`).
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+- An OpenAI API key that can call the Decisions API. Tier 1 steps need no key.
+
 ## Run
 
 ```bash
 uv sync
 uv run pytest
-uv run --env-file ../jev-ultrafast/.env python eval_runs.py --mode label --runs 3   # OPENAI_API_KEY
+cp .env.example .env   # set OPENAI_API_KEY
+uv run --env-file .env python eval_runs.py --mode label --runs 3
 uv run python summarize.py results.jsonl
 ```
 
