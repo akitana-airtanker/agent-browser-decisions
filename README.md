@@ -1,4 +1,4 @@
-# ab-decide
+# agent-browser-decisions
 
 Run a written browser plan through [agent-browser](https://github.com/vercel-labs/agent-browser), one step at a time.
 Each step is resolved to an observed element, executed, and checked for its effect.
@@ -87,3 +87,7 @@ Limits:
 - Same-name elements are told apart by tree context and occurrence; a wrapped link whose box centre misses the text is
   opened by keyboard.
 - Shadow DOM, iframes, file uploads, and counting widgets were not evaluated.
+
+## License
+
+MIT

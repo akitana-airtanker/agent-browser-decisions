@@ -1,8 +1,9 @@
 [project]
-name = "ab-decide"
+name = "agent-browser-decisions"
 version = "0.1.0"
 description = "Run written browser plans through agent-browser, resolving each step by label match or a decision model."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["httpx[http2]>=0.28"]
 
