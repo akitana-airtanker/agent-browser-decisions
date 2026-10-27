@@ -72,13 +72,35 @@ def normalize(text):
     return " ".join(folded.casefold().split())
 
 
+ANY = re.compile(r'^(?P<indent>\s*)- (?P<role>[\w-]+)(?: "(?P<name>.*?)")?')
+
+
 def parse_snapshot(text):
-    """Snapshot text -> [{ref, role, name, attrs, value}] for elements that carry a ref."""
-    elements = []
+    """Snapshot text -> [{ref, role, name, attrs, value, context, occurrence}] for elements that carry a ref.
+
+    context: the nearest named ancestors in the tree (innermost first), so same-name elements can be told apart.
+    occurrence: "k of n" among compatible-looking elements with the same normalized role and name.
+    """
+    elements, stack = [], []
     for line in text.splitlines():
+        head = ANY.match(line)
+        if not head:
+            continue
+        depth = len(head["indent"])
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
         match = LINE.match(line)
         if match:
-            elements.append({k: (match[k] or "").strip() for k in ("ref", "role", "name", "attrs", "value")})
+            element = {k: (match[k] or "").strip() for k in ("ref", "role", "name", "attrs", "value")}
+            element["context"] = [label for _, label in reversed(stack)][:2]
+            elements.append(element)
+        if head["name"]:
+            stack.append((depth, f"{head['role']} '{head['name'][:60]}'"))
+    keys = [(e["role"], normalize(e["name"])) for e in elements]
+    for element, key in zip(elements, keys, strict=True):
+        same = [i for i, k in enumerate(keys) if k == key]
+        if len(same) > 1:
+            element["occurrence"] = f"{same.index(elements.index(element)) + 1} of {len(same)} with this name"
     return elements
 
 
@@ -89,11 +111,22 @@ def compatible(step, elements):
 
 
 def match_label(step, elements):
-    """-> (element | None, "hit" | "ambiguous" | "missing"). Exact normalized label, then unique prefix."""
-    label = normalize(step["target"])
+    """-> (element | None, "hit" | "ambiguous" | "missing").
+
+    Default: exact normalized label, then unique prefix. match="regex" matches the raw name instead.
+    nth=k picks the k-th hit in document order, for positional plans ("the third result").
+    """
     pool = compatible(step, elements)
-    for predicate in (lambda n: n == label, lambda n: n.startswith(label)):
-        hits = [e for e in pool if predicate(normalize(e["name"]))]
+    if step.get("match") == "regex":
+        pattern = re.compile(step["target"], re.IGNORECASE)
+        predicates = [lambda e: pattern.search(e["name"])]
+    else:
+        label = normalize(step["target"])
+        predicates = [lambda e: normalize(e["name"]) == label, lambda e: normalize(e["name"]).startswith(label)]
+    for predicate in predicates:
+        hits = [e for e in pool if predicate(e)]
+        if step.get("nth"):
+            return (hits[step["nth"] - 1], "hit") if len(hits) >= step["nth"] else (None, "missing")
         if len(hits) == 1:
             return hits[0], "hit"
         if len(hits) > 1:
@@ -105,12 +138,21 @@ def describe(element):
     parts = [element["role"], element["name"]]
     if element["value"]:
         parts.append(f"value={element['value']}")
-    state = [a.strip().rstrip(",") for a in element["attrs"].split(",") if "=" in a]
-    return " | ".join(p for p in parts + state if p)[:500]
+    parts += [a.strip().rstrip(",") for a in element["attrs"].split(",") if "=" in a]
+    if element.get("context"):
+        parts.append("in: " + " < ".join(element["context"]))
+    else:
+        parts.append("in: top level of the page content")
+    if element.get("occurrence"):
+        parts.append(element["occurrence"])
+    return " | ".join(p for p in parts if p)[:500]
 
 
 def decision_request(step, goal, candidates, url):
-    ranked = sorted(candidates, key=lambda e: normalize(step["target"]) not in normalize(e["name"]))[:MAX_CHOICES]
+    ranked = candidates
+    if len(candidates) > MAX_CHOICES:  # keep document order unless trimming is needed
+        ranked = sorted(candidates, key=lambda e: normalize(step["target"]) not in normalize(e["name"]))
+    ranked = ranked[:MAX_CHOICES]
     return {
         "model": os.environ.get("DECISION_MODEL", "gpt-6-luna"),
         "input": [
@@ -127,7 +169,8 @@ def decision_request(step, goal, candidates, url):
                 "type": "choice",
                 "name": "target",
                 "instructions": (
-                    f"Perform exactly this step: {step['action']} the element described as {step['target']!r}"
+                    f"Perform exactly this step: {step['action']} the element described as "
+                    f"{step.get('describe', step['target'])!r}"
                     + (f" with value {step['value']!r}" if step.get("value") else "")
                     + ". Choose the observed element this step should act on."
                 ),
@@ -269,7 +312,15 @@ def effect(step, element, page):
         def moved():
             return document(ab("get", "url", category="check").strip()) != document(page["url"])
 
-        return "ok" if poll(moved, 3.0, 0.1) else "wrong_target"
+        if poll(moved, 1.5, 0.1):
+            return "ok"
+        if element["role"] == "link":
+            # A wrapped inline link can have its box centre between lines; keyboard activation is geometry-free.
+            ab("focus", ref, check=False, category="act")
+            ab("press", "Enter", check=False, category="act")
+            if poll(moved, 3.0, 0.1):
+                return "ok_keyboard"
+        return "wrong_target"
     return "ok" if poll(changed_since(page), 1.0) else "no_effect"
 
 

@@ -57,3 +57,27 @@ def test_decision_choices_are_bounded_observed_refs(elements, target):
     values = [c["value"] for c in request["questions"][0]["choices"]]
     assert len(values) <= MAX_CHOICES and len(set(values)) == len(values)
     assert set(values) <= {e["ref"] for e in elements}
+
+
+def test_same_name_elements_carry_context_and_occurrence():
+    text = """- link "Turing machine" [ref=e85]
+- table
+  - cell "Known for Enigma"
+    - list
+      - link "Turing machine" [ref=e1529]"""
+    a, b = parse_snapshot(text)
+    assert a["context"] == [] and a["occurrence"] == "1 of 2 with this name"
+    assert b["context"] == ["cell 'Known for Enigma'"] and b["occurrence"] == "2 of 2 with this name"
+    from ab_decide import describe
+
+    assert "in: cell 'Known for Enigma'" in describe(b) and "top level" in describe(a)
+
+
+def test_regex_nth_selects_positionally_in_document_order():
+    text = "\n".join(f'- link "{n}comments" [ref=e{i}]' for i, n in enumerate([42, 39, 37, 60], 1))
+    text += '\n- link "comments" [ref=e9]\n- link "discuss" [ref=e10]'
+    elements = parse_snapshot(text)
+    step = {"action": "click", "target": r"^(\d+\s*comments?|discuss)$", "match": "regex", "nth": 3}
+    assert match_label(step, elements)[0]["ref"] == "e3"
+    assert match_label(step | {"nth": 6}, elements) == (None, "missing")
+    assert match_label(step | {"nth": 5}, elements)[0]["ref"] == "e10"

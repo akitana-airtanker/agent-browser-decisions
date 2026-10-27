@@ -81,9 +81,11 @@ TASKS = {
         "steps": [
             S(
                 "click",
-                "the comments link (e.g. '23 comments') of the THIRD story in the list",
+                r"^(\d+\s*comments?|discuss)$",
                 role="link",
-                decide=True,
+                match="regex",
+                nth=3,
+                describe="the comments link (e.g. '23 comments' or 'discuss') of the THIRD story in the list",
             )
         ],
         "verify": "(expected) => ({passed: location.pathname === '/item' && "
