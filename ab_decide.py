@@ -219,11 +219,18 @@ def observe(category="observe"):
     return {"url": data.get("origin", ""), "raw": raw, "elements": parse_snapshot(raw)}
 
 
+class MissingKey(RuntimeError):
+    pass
+
+
 def decide(request):
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise MissingKey("OPENAI_API_KEY is required: a step needs the decision model (no unique label match)")
     started = time.perf_counter()
     response = CLIENT.post(
         os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/decisions",
-        headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
+        headers={"Authorization": f"Bearer {key}"},
         json=request,
     )
     METRICS.add("decision", time.perf_counter() - started)
@@ -330,66 +337,208 @@ def effect(step, element, page):
 
 
 def run_plan(steps, goal, mode, retries=2):
-    """Resolve -> act -> check effect. A dropped input is repeated once; a dead link is excluded and re-resolved."""
+    """Resolve -> act -> check effect. Stops at the first unresolved step and keeps the log of earlier steps."""
     log = []
     for index, step in enumerate(steps, 1):
-        started = time.perf_counter()
-        METRICS.reset()
-        excluded, tiers, repeats = set(), [], 0
-        if step["action"] == "press":  # a key press needs no target; it goes to the focused element
-            page = observe()
-            ab("press", step["value"], category="act")
-            outcome = "ok" if poll(changed_since(page), 1.0) else "no_effect"
-            log.append(
-                {
-                    "step": index,
-                    "tier": 0,
-                    "target": step["value"],
-                    "ok": True,
-                    "effect": outcome,
-                    "ms": round((time.perf_counter() - started) * 1000),
-                    "metrics": METRICS.summary(),
-                }
-            )
-            continue
-        while True:
-            element, tier, info, page = resolve(step, goal, "decide" if step.get("decide") else mode, exclude=excluded)
-            tiers.append(tier)
-            entry = {
-                "step": index,
-                "tier": max(tiers),
-                "tiers": tiers,
-                "target": step["target"],
-                "url": page["url"],
-                **info,
-            }
-            if element is None:
-                log.append(entry | {"ok": False, "metrics": METRICS.summary()})
+        try:
+            if not run_step(index, step, goal, mode, retries, log):
                 return log, False
-            try:
-                ab(*command_for(step, element["ref"]), category="act")
-            except RuntimeError as error:
-                log.append(entry | {"ok": False, "error": str(error)[:200], "metrics": METRICS.summary()})
-                return log, False
-            outcome = effect(step, element, page)
-            if outcome == "no_effect" and repeats < 1:
-                repeats += 1
-                continue
-            if outcome == "wrong_target" and (tier == 1 or step.get("expect") == "navigation") and repeats < 1:
-                repeats += 1  # a unique label match is right; the click was probably swallowed
-                continue
-            if outcome == "wrong_target" and tier == 2 and len(excluded) < retries:
-                excluded.add(element["ref"])
-                continue
-            break
-        entry |= {
-            "ok": True,
-            "chose": element["name"][:80],
-            "effect": outcome,
-            "excluded": len(excluded),
-            "repeats": repeats,
-            "ms": round((time.perf_counter() - started) * 1000),
-            "metrics": METRICS.summary(),
-        }
-        log.append(entry)
+        except (RuntimeError, httpx.HTTPError, json.JSONDecodeError) as error:
+            log.append({"step": index, "target": step.get("target"), "ok": False, "error": str(error)[:300]})
+            return log, False
     return log, True
+
+
+def run_step(index, step, goal, mode, retries, log):
+    """One step. Appends its entry to log; returns False when the step could not be completed."""
+    started = time.perf_counter()
+    METRICS.reset()
+    excluded, tiers, repeats = set(), [], 0
+    if step["action"] == "press":  # a key press needs no target; it goes to the focused element
+        page = observe()
+        ab("press", step["value"], category="act")
+        outcome = "ok" if poll(changed_since(page), 1.0) else "no_effect"
+        log.append(
+            {
+                "step": index,
+                "tier": 0,
+                "target": step["value"],
+                "ok": True,
+                "effect": outcome,
+                "ms": round((time.perf_counter() - started) * 1000),
+                "metrics": METRICS.summary(),
+            }
+        )
+        return True
+    while True:
+        element, tier, info, page = resolve(step, goal, "decide" if step.get("decide") else mode, exclude=excluded)
+        tiers.append(tier)
+        entry = {
+            "step": index,
+            "tier": max(tiers),
+            "tiers": tiers,
+            "target": step["target"],
+            "url": page["url"],
+            **info,
+        }
+        if element is None:
+            log.append(entry | {"ok": False, "metrics": METRICS.summary()})
+            return False
+        try:
+            ab(*command_for(step, element["ref"]), category="act")
+        except RuntimeError as error:
+            log.append(entry | {"ok": False, "error": str(error)[:200], "metrics": METRICS.summary()})
+            return False
+        outcome = effect(step, element, page)
+        if outcome == "no_effect" and repeats < 1:
+            repeats += 1
+            continue
+        if outcome == "wrong_target" and (tier == 1 or step.get("expect") == "navigation") and repeats < 1:
+            repeats += 1  # a unique label match is right; the click was probably swallowed
+            continue
+        if outcome == "wrong_target" and tier == 2 and len(excluded) < retries:
+            excluded.add(element["ref"])
+            continue
+        break
+    entry |= {
+        "ok": True,
+        "chose": element["name"][:80],
+        "effect": outcome,
+        "excluded": len(excluded),
+        "repeats": repeats,
+        "ms": round((time.perf_counter() - started) * 1000),
+        "metrics": METRICS.summary(),
+    }
+    log.append(entry)
+    return True
+
+
+# ---------- plan files ----------
+
+STEP_KEYS = {"action", "target", "value", "role", "nth", "match", "describe", "expect", "decide", "navigates"}
+PLAN_KEYS = {"url", "goal", "steps", "verify", "reset", "verify_timeout_s"}
+
+
+def validate_plan(plan):
+    """-> list of problems; empty means the plan can run. Checked before any browser action."""
+    if not isinstance(plan, dict):
+        return ["plan must be a JSON object"]
+    problems = [f"unknown plan key {k!r}" for k in plan if k not in PLAN_KEYS]
+    url = plan.get("url")
+    if url is not None and not (isinstance(url, str) and re.match(r"https?://", url)):
+        problems.append("url must start with http:// or https://")
+    if "verify" in plan and not isinstance(plan["verify"], str):
+        problems.append("verify must be a JavaScript expression string")
+    steps = plan.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return problems + ["steps must be a non-empty list"]
+    for index, step in enumerate(steps, 1):
+        where = f"step {index}"
+        if not isinstance(step, dict):
+            problems.append(f"{where}: must be an object")
+            continue
+        problems += [f"{where}: unknown key {k!r}" for k in step if k not in STEP_KEYS]
+        action = step.get("action")
+        if action not in {*ROLES, "press"}:
+            problems.append(f"{where}: action must be one of {sorted({*ROLES, 'press'})}")
+            continue
+        if action in {"fill", "select", "press"} and not isinstance(step.get("value"), str):
+            problems.append(f"{where}: {action} needs a string value")
+        if action != "press" and not (isinstance(step.get("target"), str) and step["target"].strip()):
+            problems.append(f"{where}: target label is required")
+        if "nth" in step and not (isinstance(step["nth"], int) and step["nth"] >= 1):
+            problems.append(f"{where}: nth must be a positive integer")
+        if step.get("match", "regex") != "regex":
+            problems.append(f"{where}: match supports only 'regex'")
+        if step.get("match") == "regex":
+            try:
+                re.compile(step.get("target", ""))
+            except re.error as error:
+                problems.append(f"{where}: invalid regex ({error})")
+        if step.get("expect", "navigation") != "navigation":
+            problems.append(f"{where}: expect supports only 'navigation'")
+    return problems
+
+
+def verify_page(expression, timeout_s):
+    """Poll a JavaScript check in the page. Truthy, or an object with passed=true, counts as verified."""
+    deadline = time.perf_counter() + timeout_s
+    while True:
+        out = ab("eval", expression, check=False, category="verify").strip()
+        try:
+            value = json.loads(out)
+        except json.JSONDecodeError:
+            value = out
+        passed = value.get("passed") if isinstance(value, dict) else bool(value)
+        if passed or time.perf_counter() >= deadline:
+            return bool(passed), value
+        time.sleep(0.5)
+
+
+def run_plan_file(plan, mode="label"):
+    problems = validate_plan(plan)
+    if problems:
+        return {"ok": False, "verified": None, "problems": problems}
+    started = time.perf_counter()
+    if plan.get("url"):
+        ab("open", plan["url"])
+        if plan.get("reset"):
+            for kind in ("local", "session"):
+                ab("storage", kind, "clear", check=False)
+            ab("cookies", "clear", check=False)
+            ab("open", plan["url"])
+    error = None
+    try:
+        log, completed = run_plan(plan["steps"], plan.get("goal", ""), mode)
+    except (RuntimeError, httpx.HTTPError) as failure:
+        log, completed, error = [], False, str(failure)[:300]
+    verified, value = (None, None)
+    if completed and plan.get("verify"):
+        verified, value = verify_page(plan["verify"], plan.get("verify_timeout_s", 10))
+    stopped = next((e["step"] for e in log if not e.get("ok")), None)
+    return {
+        "ok": completed and verified is not False,
+        "verified": verified,
+        "verify_value": value,
+        "stopped_at_step": stopped,
+        "error": error,
+        "elapsed_ms": round((time.perf_counter() - started) * 1000),
+        "url": ab("get", "url", check=False).strip(),
+        "steps": [
+            {k: e.get(k) for k in ("step", "tier", "target", "chose", "effect", "confidence", "reason", "ms")}
+            for e in log
+        ],
+    }
+
+
+def main(argv=None):
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(prog="agent-browser-decisions", description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name, text in (("validate", "check a plan file without touching the browser"), ("run", "run a plan file")):
+        command = sub.add_parser(name, help=text)
+        command.add_argument("plan", help="plan JSON file, or - for stdin")
+        if name == "run":
+            command.add_argument(
+                "--mode",
+                choices=["label", "decide"],
+                default="label",
+                help="decide: resolve every step with the decision model",
+            )
+    args = parser.parse_args(argv)
+    source = sys.stdin if args.plan == "-" else open(args.plan, encoding="utf-8")  # noqa: SIM115
+    with source:
+        plan = json.load(source)
+    if args.command == "validate":
+        problems = validate_plan(plan)
+        print(json.dumps({"ok": not problems, "problems": problems}, ensure_ascii=False, indent=2))
+        return 0 if not problems else 2
+    result = run_plan_file(plan, args.mode)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

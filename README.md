@@ -12,17 +12,47 @@ resolve → act → check effect
 
 The model only chooses an observed ref. It never writes selectors, text, or code. Field values come from the plan.
 
+## Plan files
+
+```json
+{
+  "url": "https://quotes.toscrape.com/",
+  "goal": "Open the 'inspirational' tag, then go to its second page.",
+  "reset": true,
+  "steps": [
+    {"action": "click", "target": "inspirational", "role": "link"},
+    {"action": "click", "target": "Next", "role": "link"}
+  ],
+  "verify": "location.pathname === '/tag/inspirational/page/2/'"
+}
+```
+
+```bash
+agent-browser-decisions validate plan.json   # schema check, no browser
+agent-browser-decisions run plan.json        # JSON result; exit 0 only if every step ran and verify passed
+```
+
+`reset` clears cookies and web storage of the start origin first. `verify` is a JavaScript expression polled in the
+page for up to `verify_timeout_s` (default 10); truthy, or an object with `passed: true`, counts as verified.
+The result reports `stopped_at_step` and per-step `tier`, `chose`, and `effect`, so a caller can take over from the
+failed step.
+
+From another directory: `uv run --project /path/to/agent-browser-decisions --env-file /path/to/.env
+agent-browser-decisions run plan.json`.
+
 ## Plan steps
 
 ```python
-{"action": "click" | "fill" | "select" | "check" | "press",
- "target": "Search",                 # label; match="regex" for a pattern
- "value": "Zurich",                  # fill / select / press
- "role": "button",                   # optional; also a wait condition (see below)
- "nth": 3,                           # optional positional pick among label hits
- "describe": "the comments link of the THIRD story",  # text given to the decision model
- "expect": "navigation",             # optional effect to verify
- "decide": True}                     # skip label matching for this step
+{
+    "action": "click" | "fill" | "select" | "check" | "press",
+    "target": "Search",  # label; match="regex" for a pattern
+    "value": "Zurich",  # fill / select / press
+    "role": "button",  # optional; also a wait condition (see below)
+    "nth": 3,  # optional positional pick among label hits
+    "describe": "the comments link of the THIRD story",  # text given to the decision model
+    "expect": "navigation",  # optional effect to verify
+    "decide": True,
+}  # skip label matching for this step
 ```
 
 Write `role` only for elements seen during reconnaissance. A role means "wait until elements of this role exist";

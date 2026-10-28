@@ -7,6 +7,16 @@ license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["httpx[http2]>=0.28"]
 
+[project.scripts]
+agent-browser-decisions = "ab_decide:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["ab_decide.py"]
+
 [dependency-groups]
 dev = [
     "hypothesis>=6.170.11",

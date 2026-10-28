@@ -81,3 +81,48 @@ def test_regex_nth_selects_positionally_in_document_order():
     assert match_label(step, elements)[0]["ref"] == "e3"
     assert match_label(step | {"nth": 6}, elements) == (None, "missing")
     assert match_label(step | {"nth": 5}, elements)[0]["ref"] == "e10"
+
+
+def test_validate_plan_accepts_the_documented_shape_and_names_each_problem():
+    from ab_decide import validate_plan
+
+    good = {
+        "url": "https://example.test/",
+        "goal": "g",
+        "verify": "location.pathname === '/done'",
+        "steps": [
+            {"action": "fill", "target": "Name", "value": "Taro"},
+            {"action": "press", "value": "Enter"},
+            {"action": "click", "target": r"^\d+ comments$", "match": "regex", "nth": 3, "role": "link"},
+            {"action": "click", "target": "Search", "expect": "navigation"},
+        ],
+    }
+    assert validate_plan(good) == []
+    bad = {
+        "url": "file:///etc/passwd",
+        "steps": [
+            {"action": "type", "target": "x"},
+            {"action": "fill", "target": "x"},
+            {"action": "click", "target": "("},
+            {"action": "click", "target": "a", "nth": 0, "match": "glob", "expect": "toast", "colour": "red"},
+        ],
+    }
+    problems = " | ".join(validate_plan(bad))
+    for fragment in (
+        "url must start",
+        "step 1: action",
+        "step 2: fill needs",
+        "step 4: nth",
+        "match supports",
+        "expect supports",
+        "unknown key 'colour'",
+    ):
+        assert fragment in problems
+    assert validate_plan({"steps": []}) == ["steps must be a non-empty list"]
+
+
+@given(st.dictionaries(st.text(max_size=8), st.integers() | st.text(max_size=8), max_size=6))
+def test_validate_plan_never_raises(junk):
+    from ab_decide import validate_plan
+
+    assert isinstance(validate_plan(junk), list) and isinstance(validate_plan({"steps": [junk]}), list)
