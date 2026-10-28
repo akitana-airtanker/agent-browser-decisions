@@ -126,3 +126,10 @@ def test_validate_plan_never_raises(junk):
     from ab_decide import validate_plan
 
     assert isinstance(validate_plan(junk), list) and isinstance(validate_plan({"steps": [junk]}), list)
+
+
+def test_hash_route_links_are_recognised_by_their_href():
+    from ab_decide import hash_route
+
+    assert hash_route("#/active") and hash_route(" #section")
+    assert not hash_route("/wiki/Turing_machine") and not hash_route("https://x.test/#a") and not hash_route(None)

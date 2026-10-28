@@ -288,6 +288,11 @@ def document(url):
     return url.split("#", 1)[0]
 
 
+def hash_route(href):
+    """A link whose href is only a fragment ("#/active") navigates by changing the fragment (SPA hash routing)."""
+    return (href or "").strip().startswith("#")
+
+
 def poll(predicate, wait_s, interval_s=0.05):
     deadline = time.perf_counter() + wait_s
     while True:
@@ -324,9 +329,11 @@ def effect(step, element, page):
     if action == "select":
         return "ok"
     if step.get("expect") == "navigation" or (element["role"] == "link" and step.get("navigates", True)):
+        whole = element["role"] == "link" and hash_route(ab("get", "attr", ref, "href", check=False, category="check"))
 
         def moved():
-            return document(ab("get", "url", category="check").strip()) != document(page["url"])
+            now = ab("get", "url", category="check").strip()
+            return now != page["url"] if whole else document(now) != document(page["url"])
 
         if poll(moved, 1.5, 0.1):
             return "ok"
