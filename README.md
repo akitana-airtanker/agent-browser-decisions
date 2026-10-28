@@ -32,7 +32,9 @@ agent-browser-decisions validate plan.json   # schema check, no browser
 agent-browser-decisions run plan.json        # JSON result; exit 0 only if every step ran and verify passed
 ```
 
-`reset` runs the plan in a fresh, isolated agent-browser session (closed on success, kept open on failure so a caller can continue with `agent-browser --session <session>`). Clearing cookies and storage inside one long-lived browser was unreliable: logins stopped sticking. `--session NAME` runs in an existing session. `verify` is a JavaScript expression polled in the
+`reset` runs the plan in a fresh, isolated agent-browser session (closed on success, kept open on failure so a caller can continue with `agent-browser --session <session>`). Clearing cookies and storage inside one long-lived browser was unreliable: logins stopped sticking. `--session NAME` runs in an existing session.
+
+Sessions launched by `reset` use a fresh Chrome profile with the password manager turned off: after a successful login, Chrome's save-password prompt or leak warning otherwise swallows every mouse and keyboard event to the page (JavaScript still works), so later clicks silently do nothing. For direct agent-browser use, `agent-browser --session NAME --profile "$(agent-browser-decisions profile)" open URL` launches the same way. `verify` is a JavaScript expression polled in the
 page for up to `verify_timeout_s` (default 10); truthy, or an object with `passed: true`, counts as verified.
 The result reports `stopped_at_step` and per-step `tier`, `chose`, and `effect`, so a caller can take over from the
 failed step.

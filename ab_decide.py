@@ -204,6 +204,25 @@ def command_for(step, ref):
 
 SESSION = {"name": None}  # agent-browser session for every call; None means the caller's default
 
+# Chrome's password manager (save prompt, leak warning) appears after a successful login and swallows all mouse and
+# keyboard input to the page, while JavaScript still works. Sessions this tool launches use a profile with it off.
+QUIET_PREFERENCES = {
+    "credentials_enable_service": False,
+    "credentials_enable_autosignin": False,
+    "profile": {"password_manager_enabled": False, "password_manager_leak_detection": False},
+}
+
+
+def quiet_profile():
+    """A fresh Chrome profile directory with the password manager disabled. The caller removes it when done."""
+    import tempfile
+
+    root = tempfile.mkdtemp(prefix="abd-profile-")
+    os.makedirs(os.path.join(root, "Default"))
+    with open(os.path.join(root, "Default", "Preferences"), "w", encoding="utf-8") as file:
+        json.dump(QUIET_PREFERENCES, file)
+    return root
+
 
 def ab(*args, check=True, category="browser"):
     started = time.perf_counter()
@@ -493,11 +512,13 @@ def run_plan_file(plan, mode="label", session=None):
     if problems:
         return {"ok": False, "verified": None, "problems": problems}
     started = time.perf_counter()
+    profile = None
     if plan.get("reset") and not session:
         session = f"abd-{int(time.time() * 1000)}-{os.getpid()}"
+        profile = quiet_profile()
     SESSION["name"] = session
     if plan.get("url"):
-        ab("open", plan["url"])
+        ab(*(["--profile", profile] if profile else []), "open", plan["url"])
     error = None
     try:
         log, completed = run_plan(plan["steps"], plan.get("goal", ""), mode)
@@ -511,6 +532,10 @@ def run_plan_file(plan, mode="label", session=None):
     url = ab("get", "url", check=False).strip()
     if ok and plan.get("reset"):
         ab("close", check=False)
+        if profile:
+            import shutil
+
+            shutil.rmtree(profile, ignore_errors=True)
     return {
         "ok": ok,
         "session": session or os.environ.get("AGENT_BROWSER_SESSION", "default"),
@@ -534,6 +559,7 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(prog="agent-browser-decisions", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("profile", help="create a Chrome profile with the password manager off and print its path")
     for name, text in (("validate", "check a plan file without touching the browser"), ("run", "run a plan file")):
         command = sub.add_parser(name, help=text)
         command.add_argument("plan", help="plan JSON file, or - for stdin")
@@ -546,6 +572,9 @@ def main(argv=None):
             )
             command.add_argument("--session", help="run in this agent-browser session (e.g. to continue a failed run)")
     args = parser.parse_args(argv)
+    if args.command == "profile":
+        print(quiet_profile())
+        return 0
     source = sys.stdin if args.plan == "-" else open(args.plan, encoding="utf-8")  # noqa: SIM115
     with source:
         plan = json.load(source)
