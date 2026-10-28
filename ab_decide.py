@@ -202,9 +202,13 @@ def command_for(step, ref):
 # ---------- adapters ----------
 
 
+SESSION = {"name": None}  # agent-browser session for every call; None means the caller's default
+
+
 def ab(*args, check=True, category="browser"):
     started = time.perf_counter()
-    result = subprocess.run(["agent-browser", *args], capture_output=True, text=True, timeout=60, check=False)
+    env = {**os.environ, "AGENT_BROWSER_SESSION": SESSION["name"]} if SESSION["name"] else None
+    result = subprocess.run(["agent-browser", *args], capture_output=True, text=True, timeout=60, check=False, env=env)
     METRICS.add(category, time.perf_counter() - started)
     if check and result.returncode != 0:
         raise RuntimeError(
@@ -475,18 +479,18 @@ def verify_page(expression, timeout_s):
         time.sleep(0.5)
 
 
-def run_plan_file(plan, mode="label"):
+def run_plan_file(plan, mode="label", session=None):
+    """reset=true runs in a fresh, isolated agent-browser session: closed on success, kept open for takeover on
+    failure. Clearing cookies and storage inside one long-lived browser proved unreliable (logins stopped sticking)."""
     problems = validate_plan(plan)
     if problems:
         return {"ok": False, "verified": None, "problems": problems}
     started = time.perf_counter()
+    if plan.get("reset") and not session:
+        session = f"abd-{int(time.time() * 1000)}-{os.getpid()}"
+    SESSION["name"] = session
     if plan.get("url"):
         ab("open", plan["url"])
-        if plan.get("reset"):
-            for kind in ("local", "session"):
-                ab("storage", kind, "clear", check=False)
-            ab("cookies", "clear", check=False)
-            ab("open", plan["url"])
     error = None
     try:
         log, completed = run_plan(plan["steps"], plan.get("goal", ""), mode)
@@ -496,14 +500,20 @@ def run_plan_file(plan, mode="label"):
     if completed and plan.get("verify"):
         verified, value = verify_page(plan["verify"], plan.get("verify_timeout_s", 10))
     stopped = next((e["step"] for e in log if not e.get("ok")), None)
+    ok = completed and verified is not False
+    url = ab("get", "url", check=False).strip()
+    if ok and plan.get("reset"):
+        ab("close", check=False)
     return {
-        "ok": completed and verified is not False,
+        "ok": ok,
+        "session": session or os.environ.get("AGENT_BROWSER_SESSION", "default"),
+        "session_open": not (ok and plan.get("reset")),
         "verified": verified,
         "verify_value": value,
         "stopped_at_step": stopped,
         "error": error,
         "elapsed_ms": round((time.perf_counter() - started) * 1000),
-        "url": ab("get", "url", check=False).strip(),
+        "url": url,
         "steps": [
             {k: e.get(k) for k in ("step", "tier", "target", "chose", "effect", "confidence", "reason", "ms")}
             for e in log
@@ -527,6 +537,7 @@ def main(argv=None):
                 default="label",
                 help="decide: resolve every step with the decision model",
             )
+            command.add_argument("--session", help="run in this agent-browser session (e.g. to continue a failed run)")
     args = parser.parse_args(argv)
     source = sys.stdin if args.plan == "-" else open(args.plan, encoding="utf-8")  # noqa: SIM115
     with source:
@@ -535,7 +546,7 @@ def main(argv=None):
         problems = validate_plan(plan)
         print(json.dumps({"ok": not problems, "problems": problems}, ensure_ascii=False, indent=2))
         return 0 if not problems else 2
-    result = run_plan_file(plan, args.mode)
+    result = run_plan_file(plan, args.mode, args.session)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1
 

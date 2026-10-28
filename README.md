@@ -32,7 +32,7 @@ agent-browser-decisions validate plan.json   # schema check, no browser
 agent-browser-decisions run plan.json        # JSON result; exit 0 only if every step ran and verify passed
 ```
 
-`reset` clears cookies and web storage of the start origin first. `verify` is a JavaScript expression polled in the
+`reset` runs the plan in a fresh, isolated agent-browser session (closed on success, kept open on failure so a caller can continue with `agent-browser --session <session>`). Clearing cookies and storage inside one long-lived browser was unreliable: logins stopped sticking. `--session NAME` runs in an existing session. `verify` is a JavaScript expression polled in the
 page for up to `verify_timeout_s` (default 10); truthy, or an object with `passed: true`, counts as verified.
 The result reports `stopped_at_step` and per-step `tier`, `chose`, and `effect`, so a caller can take over from the
 failed step.
@@ -112,6 +112,8 @@ The machine's load average was 5–17 during runs, so times vary by about 2×; a
 Limits:
 
 - Positional choices ("the third story") are unreliable for the decision model; plans should use `nth`.
+- Identical labels repeated per item (each product's "Add to cart") carry no item name in the snapshot, so neither
+  label matching nor the decision model can tell them apart; use `nth` or act on that step directly.
 - Labels for the known sites came from earlier exploration. Unseen-site plans used one start-page snapshot; the
   saucedemo cart role guess was removed after a failure, and the "omit unseen roles" rule came from that failure.
 - Same-name elements are told apart by tree context and occurrence; a wrapped link whose box centre misses the text is
