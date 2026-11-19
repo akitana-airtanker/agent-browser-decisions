@@ -418,3 +418,188 @@ def test_cli_non_utf8_plan_returns_exit_2(tmp_path: Path, capsys: pytest.Capture
     assert main(["validate", str(binary_file)]) == 2
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False and out["problems"]
+
+
+# ---------- Settle-loop resolution invariants ----------
+
+
+class SequenceBrowser(FakeBrowser):
+    """FakeBrowser that replays a scripted sequence of snapshots across observe() calls."""
+
+    def __init__(self, snapshots: list[str], session: str | None = None, **kwargs: Any) -> None:
+        super().__init__(session, **kwargs)
+        self._snapshots = snapshots
+        self._idx = 0
+        self.snap = snapshots[-1]
+
+    def observe(self, category: str = "observe") -> dict[str, Any]:
+        if category == "observe":
+            raw = self._snapshots[min(self._idx, len(self._snapshots) - 1)]
+            self._idx += 1
+        else:
+            raw = self.snap
+        return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+
+class FailingDecisionsClient:
+    """Stub DecisionsClient that fails the test if Tier 2 is unexpectedly invoked."""
+
+    def __init__(self, **_kwargs: Any) -> None:
+        self.calls = 0
+
+    def __enter__(self) -> FailingDecisionsClient:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def decide(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls += 1
+        raise AssertionError(f"Tier 2 Decisions API should not be called: {payload}")
+
+
+def test_resolve_label_waits_for_delayed_dynamic_target() -> None:
+    """In label mode, unrelated stable candidates must not abort waiting before settle_s."""
+    snaps = [
+        '- button "Cancel" [ref=e1]\n- button "Help" [ref=e2]',
+        '- button "Cancel" [ref=e1]\n- button "Help" [ref=e2]',
+        '- button "Cancel" [ref=e1]\n- button "Help" [ref=e2]\n- option "Zürich, Switzerland" [ref=e9]',
+        '- button "Cancel" [ref=e1]\n- button "Help" [ref=e2]\n- option "Zürich, Switzerland" [ref=e9]',
+    ]
+    browsers: list[SequenceBrowser] = []
+    decisions_clients: list[FailingDecisionsClient] = []
+
+    def make_browser(session: str | None = None, **kwargs: Any) -> SequenceBrowser:
+        b = SequenceBrowser(snaps, session=session, **kwargs)
+        browsers.append(b)
+        return b
+
+    def make_decisions(**kwargs: Any) -> FailingDecisionsClient:
+        d = FailingDecisionsClient(**kwargs)
+        decisions_clients.append(d)
+        return d
+
+    runner = PlanRunner(
+        browser_factory=make_browser,
+        decisions_factory=make_decisions,
+        settle_s=0.3,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    plan = {"steps": [{"action": "click", "target": "Zürich, Switzerland"}]}
+
+    result = runner.run_plan_file(plan)
+    assert result["ok"] is True
+    assert result["steps"][0]["tier"] == 1
+    assert all(d.calls == 0 for d in decisions_clients)
+    assert browsers[0].act_calls == [("click", "@e9")]
+
+
+def test_resolve_label_hits_on_settle_expiry_when_page_keeps_mutating() -> None:
+    """A continuously animating page with a unique label hit should resolve at Tier 1 on expiry."""
+
+    class TickingBrowser(FakeBrowser):
+        def __init__(self, session: str | None = None, **kwargs: Any) -> None:
+            super().__init__(session, **kwargs)
+            self.ticks = 0
+
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            if category == "observe":
+                self.ticks += 1
+                raw = f'- button "Clock {self.ticks}" [ref=e1]\n- button "Search" [ref=e5]'
+            else:
+                raw = self.snap
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+    browsers: list[TickingBrowser] = []
+    decisions_clients: list[FailingDecisionsClient] = []
+
+    def make_browser(session: str | None = None, **kwargs: Any) -> TickingBrowser:
+        b = TickingBrowser(session=session, **kwargs)
+        browsers.append(b)
+        return b
+
+    def make_decisions(**kwargs: Any) -> FailingDecisionsClient:
+        d = FailingDecisionsClient(**kwargs)
+        decisions_clients.append(d)
+        return d
+
+    runner = PlanRunner(
+        browser_factory=make_browser,
+        decisions_factory=make_decisions,
+        settle_s=0.04,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    plan = {"steps": [{"action": "click", "target": "Search"}]}
+
+    result = runner.run_plan_file(plan)
+    assert result["ok"] is True
+    assert result["steps"][0]["tier"] == 1
+    assert all(d.calls == 0 for d in decisions_clients)
+    assert browsers[0].act_calls == [("click", "@e5")]
+
+
+def test_resolve_nth_waits_for_kth_item_and_stops_at_tier_3_when_missing() -> None:
+    """nth=k waits for lazy-loaded items up to settle_s, then stops at Tier 3 if still absent."""
+    # Case A: 3rd result arrives after initial two snapshots are already stable
+    delayed_snaps = [
+        '- button "Result A" [ref=e11]\n- button "Result B" [ref=e12]',
+        '- button "Result A" [ref=e11]\n- button "Result B" [ref=e12]',
+        '- button "Result A" [ref=e11]\n- button "Result B" [ref=e12]\n- button "Result C" [ref=e13]',
+        '- button "Result A" [ref=e11]\n- button "Result B" [ref=e12]\n- button "Result C" [ref=e13]',
+    ]
+    browsers_ok: list[SequenceBrowser] = []
+    decisions_ok: list[FailingDecisionsClient] = []
+
+    def make_browser_ok(session: str | None = None, **kwargs: Any) -> SequenceBrowser:
+        b = SequenceBrowser(delayed_snaps, session=session, **kwargs)
+        browsers_ok.append(b)
+        return b
+
+    def make_decisions_ok(**kwargs: Any) -> FailingDecisionsClient:
+        d = FailingDecisionsClient(**kwargs)
+        decisions_ok.append(d)
+        return d
+
+    runner = PlanRunner(
+        browser_factory=make_browser_ok,
+        decisions_factory=make_decisions_ok,
+        settle_s=0.3,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    plan = {"steps": [{"action": "click", "target": "Result", "nth": 3}]}
+
+    res_ok = runner.run_plan_file(plan)
+    assert res_ok["ok"] is True
+    assert res_ok["steps"][0]["tier"] == 1
+    assert all(d.calls == 0 for d in decisions_ok)
+    assert browsers_ok[0].act_calls == [("click", "@e13")]
+
+    # Case B: 3rd result never appears -> stops at Tier 3 without invoking Decisions API
+    short_snaps = ['- button "Result A" [ref=e11]\n- button "Result B" [ref=e12]']
+    decisions_miss: list[FailingDecisionsClient] = []
+
+    def make_browser_miss(session: str | None = None, **kwargs: Any) -> SequenceBrowser:
+        return SequenceBrowser(short_snaps, session=session, **kwargs)
+
+    def make_decisions_miss(**kwargs: Any) -> FailingDecisionsClient:
+        d = FailingDecisionsClient(**kwargs)
+        decisions_miss.append(d)
+        return d
+
+    runner_fast = PlanRunner(
+        browser_factory=make_browser_miss,
+        decisions_factory=make_decisions_miss,
+        settle_s=0.04,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+
+    res_miss = runner_fast.run_plan_file(plan)
+    assert res_miss["ok"] is False
+    assert res_miss["stopped_at_step"] == 1
+    assert res_miss["steps"][0]["tier"] == 3
+    assert all(d.calls == 0 for d in decisions_miss)
+    assert "nth out of range" in res_miss["steps"][0]["reason"]

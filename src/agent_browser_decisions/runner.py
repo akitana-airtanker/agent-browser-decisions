@@ -114,18 +114,16 @@ class PlanRunner:
             stable = previous is not None and page["raw"] == previous
             previous = page["raw"]
             remaining = [e for e in page["elements"] if e["ref"] not in exclude]
-            has_role = not step.get("role") or any(e["role"] == step["role"] for e in remaining)
-            if mode == "label" and stable and has_role:
-                element, status = match_label(step, remaining)
-                if status == "hit" and element is not None:
-                    return element, 1, {}, page
-                if status == "ambiguous" or step.get("nth") is not None:
+            expired = time.perf_counter() >= deadline
+            if mode == "decide":
+                if (stable and compatible(step, remaining)) or expired:
                     break
-            candidates = compatible(step, remaining)
-            if stable and candidates:
-                break
-            if time.perf_counter() >= deadline:
-                break
+            else:
+                element, status = match_label(step, remaining)
+                if status == "hit" and element is not None and (stable or expired):
+                    return element, 1, {}, page
+                if (status == "ambiguous" and stable) or expired:
+                    break
             time.sleep(self.poll_s)
 
         if step.get("nth") is not None:
