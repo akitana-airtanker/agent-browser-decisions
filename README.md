@@ -71,6 +71,20 @@ it is relaxed only if none appear within 3 s.
 
 Steps act only on a settled page: two consecutive identical snapshots.
 
+## Agent skill
+
+This repository bundles an agent skill at [`skills/agent-browser-decisions/SKILL.md`](skills/agent-browser-decisions/SKILL.md) (in Japanese) for Claude Code, Codex, and other agents supporting the `SKILL.md` convention.
+
+It teaches the agent when to write a plan vs. drive `agent-browser` directly, enforces safe plan rules (omit unseen `role`, use `nth` for ordinal choices, keep irreversible submissions out of plans), and handles takeover from `stopped_at_step`.
+
+Install with the Skills CLI:
+
+```bash
+npx skills add akitana-airtanker/agent-browser-decisions
+```
+
+Or copy/symlink `skills/agent-browser-decisions` from a local clone into `~/.agents/skills/agent-browser-decisions` (Codex / Pi) or `~/.claude/skills/agent-browser-decisions` (Claude Code). Set `AGENT_BROWSER_DECISIONS_DIR` if your clone is not at `~/src/agent-browser-decisions`.
+
 ## Requirements
 
 - [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH`, connected to a browser
