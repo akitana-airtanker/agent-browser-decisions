@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             with open(args.plan, encoding="utf-8") as source:
                 plan = json.load(source)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "problems": [f"cannot read plan: {error}"]}, ensure_ascii=False, indent=2))
         return 2
 

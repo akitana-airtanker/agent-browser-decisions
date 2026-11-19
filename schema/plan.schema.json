@@ -59,43 +59,6 @@
     ]
   },
   "$defs": {
-    "commonFlags": {
-      "expect": {
-        "const": "navigation"
-      },
-      "once": {
-        "type": "boolean",
-        "description": "Execute at most once; disables retries and keyboard fallback."
-      }
-    },
-    "targetFields": {
-      "target": {
-        "type": "string",
-        "minLength": 1
-      },
-      "describe": {
-        "type": "string"
-      },
-      "nth": {
-        "type": "integer",
-        "minimum": 1
-      },
-      "match": {
-        "const": "regex"
-      },
-      "decide": {
-        "type": "boolean"
-      },
-      "navigates": {
-        "type": "boolean"
-      },
-      "expect": {
-        "const": "navigation"
-      },
-      "once": {
-        "type": "boolean"
-      }
-    },
     "step": {
       "type": "object",
       "oneOf": [
@@ -153,6 +116,32 @@
             },
             "once": {
               "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "decide": {
+                "const": true
+              }
+            },
+            "required": [
+              "decide"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "nth"
+                  ]
+                },
+                {
+                  "required": [
+                    "match"
+                  ]
+                }
+              ]
             }
           }
         },
@@ -222,6 +211,32 @@
             "once": {
               "type": "boolean"
             }
+          },
+          "if": {
+            "properties": {
+              "decide": {
+                "const": true
+              }
+            },
+            "required": [
+              "decide"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "nth"
+                  ]
+                },
+                {
+                  "required": [
+                    "match"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -271,6 +286,32 @@
             "once": {
               "type": "boolean"
             }
+          },
+          "if": {
+            "properties": {
+              "decide": {
+                "const": true
+              }
+            },
+            "required": [
+              "decide"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "nth"
+                  ]
+                },
+                {
+                  "required": [
+                    "match"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
@@ -316,6 +357,32 @@
             },
             "once": {
               "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "decide": {
+                "const": true
+              }
+            },
+            "required": [
+              "decide"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "nth"
+                  ]
+                },
+                {
+                  "required": [
+                    "match"
+                  ]
+                }
+              ]
             }
           }
         },

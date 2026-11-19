@@ -398,5 +398,7 @@ def test_examples_and_json_schema_match_core_contracts() -> None:
 
     schema = json.loads((REPO_ROOT / "schema" / "plan.schema.json").read_text(encoding="utf-8"))
     by_action = {variant["title"]: variant for variant in schema["$defs"]["step"]["oneOf"]}
+    assert set(schema["$defs"]) == {"step"}
     for action, roles in ROLES.items():
         assert set(by_action[action]["properties"]["role"]["enum"]) == roles
+        assert "if" in by_action[action] and "then" in by_action[action]

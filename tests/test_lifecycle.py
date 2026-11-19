@@ -398,3 +398,23 @@ def test_cli_validate_doctor_profile_and_exit_codes(
     p2 = Path(quiet_profile())
     assert (p2 / "Default" / "Preferences").is_file()
     shutil.rmtree(p2)
+
+
+def test_agent_browser_missing_binary_gives_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def raise_fnf(*_args: Any, **_kwargs: Any) -> Any:
+        raise FileNotFoundError("agent-browser")
+
+    monkeypatch.setattr(subprocess, "run", raise_fnf)
+    browser = AgentBrowser()
+    with pytest.raises(RuntimeError, match="agent-browser CLI not found on PATH"):
+        browser.call("snapshot")
+
+
+def test_cli_non_utf8_plan_returns_exit_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    binary_file = tmp_path / "binary.json"
+    binary_file.write_bytes(b"\xff\xfe\x00invalid")
+    assert main(["validate", str(binary_file)]) == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False and out["problems"]

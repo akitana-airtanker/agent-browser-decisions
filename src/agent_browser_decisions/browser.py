@@ -70,14 +70,19 @@ class AgentBrowser:
     def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
         started = time.perf_counter()
         env = {**os.environ, "AGENT_BROWSER_SESSION": self.session} if self.session else None
-        result = subprocess.run(
-            ["agent-browser", *args],
-            capture_output=True,
-            text=True,
-            timeout=self.timeout_s,
-            check=False,
-            env=env,
-        )
+        try:
+            result = subprocess.run(
+                ["agent-browser", *args],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_s,
+                check=False,
+                env=env,
+            )
+        except FileNotFoundError as err:
+            raise RuntimeError(
+                "agent-browser CLI not found on PATH. Install it with: npm i -g agent-browser && agent-browser install"
+            ) from err
         if self._on_metric is not None:
             self._on_metric(category, time.perf_counter() - started)
         if check and result.returncode != 0:

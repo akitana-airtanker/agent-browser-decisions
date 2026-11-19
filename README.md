@@ -1,5 +1,9 @@
 # agent-browser-decisions
 
+[![CI](https://github.com/akitana-airtanker/agent-browser-decisions/actions/workflows/ci.yml/badge.svg)](https://github.com/akitana-airtanker/agent-browser-decisions/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Deterministic, verifiable browser automation on top of [agent-browser](https://github.com/vercel-labs/agent-browser) and the OpenAI Decisions API.
 
 Write a declarative JSON plan once, validate it before touching a browser, and execute it step by step:
@@ -21,23 +25,35 @@ The model only ever chooses an observed `ref`. It never emits selectors, text, o
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
 - `OPENAI_API_KEY` (only needed when a step escalates to Tier 2; Tier 1 plans need no key)
 
-### Install
+### Option A: Install globally as a CLI
 
 ```bash
-# Install globally as a CLI tool
 uv tool install git+https://github.com/akitana-airtanker/agent-browser-decisions.git
+agent-browser-decisions doctor
 
-# Or run from a local clone
-git clone https://github.com/akitana-airtanker/agent-browser-decisions.git
-cd agent-browser-decisions && uv sync
+# Validate & run a Tier 1 plan from stdin (no API key required)
+agent-browser-decisions run - <<'EOF'
+{
+  "url": "https://quotes.toscrape.com/",
+  "reset": true,
+  "steps": [
+    {"action": "click", "target": "inspirational", "role": "link"},
+    {"action": "click", "target": "Next", "role": "link"}
+  ],
+  "verify": "location.pathname === '/tag/inspirational/page/2/'"
+}
+EOF
 ```
 
-### Verify your setup and run an example
+### Option B: Run from a local clone
 
 ```bash
-agent-browser-decisions doctor                         # verify agent-browser & API readiness
-agent-browser-decisions validate examples/quotes.json  # schema check, no browser (exit 0 / 2)
-agent-browser-decisions run examples/quotes.json       # execute & verify (exit 0 / 1 / 2)
+git clone https://github.com/akitana-airtanker/agent-browser-decisions.git
+cd agent-browser-decisions && uv sync
+
+uv run agent-browser-decisions doctor
+uv run agent-browser-decisions validate examples/quotes.json
+uv run agent-browser-decisions run examples/quotes.json
 ```
 
 ## Plan format
@@ -88,6 +104,40 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 - `reset`: `true` launches a fresh isolated session with Chrome's password manager disabled (closed on success or interrupt; kept open on failure for takeover). Cannot combine with `--session`.
 - `verify`: JavaScript expression polled for up to `verify_timeout_s` (default `10`). JSON-serialisable truthy results (including `{}` and `[]`) or `{"passed": true}` pass; non-JSON output (`undefined`, `NaN`, syntax errors), non-zero exits, and `{"passed": false}` fail.
 
+## Output & takeover
+
+`run` prints structured JSON to stdout. On success with `reset: true`, the session is closed automatically (`session_open: false`). On failure, the session stays open (`session_open: true`) so you or an agent can inspect and continue from `stopped_at_step`:
+
+```json
+{
+  "ok": false,
+  "session": "abd-1763574000000-12345",
+  "session_open": true,
+  "verified": null,
+  "verify_value": null,
+  "stopped_at_step": 4,
+  "error": null,
+  "elapsed_ms": 2140,
+  "url": "https://www.saucedemo.com/inventory.html",
+  "steps": [
+    {"step": 1, "tier": 1, "tiers": [1], "target": "Username", "chose": "Username", "effect": "ok", "ms": 310},
+    {"step": 4, "tier": 3, "tiers": [3], "target": "Cart", "chose": null, "effect": null, "reason": "no candidates", "ms": 820}
+  ]
+}
+```
+
+Continue from the failed step without re-running completed steps:
+
+```bash
+# Option 1: inspect & finish directly with agent-browser
+agent-browser --session abd-1763574000000-12345 snapshot -i
+agent-browser --session abd-1763574000000-12345 click @e12
+agent-browser --session abd-1763574000000-12345 close
+
+# Option 2: fix the plan and resume from step 4 in the same session
+agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-step 4
+```
+
 ## CLI reference
 
 ```bash
@@ -97,13 +147,26 @@ agent-browser-decisions run <plan.json | -> [--mode label|decide] [--session NAM
                                             [--env-file PATH] [--timeout 60] [--api-timeout 30]
 agent-browser-decisions profile
 agent-browser-decisions --version
+python -m agent_browser_decisions --help
 ```
 
-- **`.env` discovery**: `run` and `doctor` load `--env-file` (or `$AGENT_BROWSER_DECISIONS_ENV_FILE`, else `./.env`, else repo `.env`) without overriding variables already present in the shell environment.
-- **Exit codes**:
-  - `0` — all steps ran and verified (`verified: null` when `verify` is omitted), or `validate`/`doctor` passed.
-  - `1` — step failure, `verify` failure, runtime/browser/API error, interrupt, or `doctor` missing `agent-browser`.
-  - `2` — invalid plan JSON, schema violation, incompatible CLI options (`reset: true` + `--session`, `--from-step > 1` without `--session`), or missing `value_env`.
+### Exit codes
+
+- `0` — all steps ran and verified (`verified: null` when `verify` is omitted), or `validate` / `doctor` passed.
+- `1` — step failure, `verify` failure, runtime/browser/API error, interrupt, or `doctor` missing `agent-browser`.
+- `2` — invalid plan JSON, schema violation, incompatible CLI options (`reset: true` + `--session`, `--from-step > 1` without `--session`), or missing `value_env`.
+
+### Environment variables
+
+`run` and `doctor` load `--env-file` (or `AGENT_BROWSER_DECISIONS_ENV_FILE`, else `./.env`, else repo `.env`) without overriding variables already set in the shell environment.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | — | OpenAI API key with `/v1/decisions` access (required for Tier 2 only) |
+| `DECISION_MODEL` | `gpt-6-luna` | Model ID sent to `/v1/decisions` |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL for Decisions API requests |
+| `AGENT_BROWSER_DECISIONS_ENV_FILE` | — | Default `.env` file path when `--env-file` is omitted |
+| `AGENT_BROWSER_SESSION` | `default` | Fallback session name used by `agent-browser` when neither `reset: true` nor `--session` is set |
 
 ## Effect checks
 
@@ -144,7 +207,8 @@ src/agent_browser_decisions/
 ├── browser.py    # Session-scoped agent-browser CLI adapter & quiet Chrome profile helper
 ├── decisions.py  # Context-managed OpenAI Decisions API client with bounded 429/5xx retries
 ├── runner.py     # PlanRunner orchestrator (resolve → act → effect → verify, SIGINT cleanup)
-└── cli.py        # CLI entry point (run, validate, doctor, profile)
+├── cli.py        # CLI entry point (run, validate, doctor, profile)
+└── __main__.py   # `python -m agent_browser_decisions` entry point
 ```
 
 ```bash
