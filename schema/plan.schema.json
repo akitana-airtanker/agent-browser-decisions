@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/akitana-airtanker/agent-browser-decisions/main/schema/plan.schema.json",
+  "title": "agent-browser-decisions Plan",
+  "type": "object",
+  "required": [
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Initial URL to open before step 1 (required when reset=true)."
+    },
+    "goal": {
+      "type": "string",
+      "description": "Human-readable goal passed as context to the Tier 2 decision model."
+    },
+    "reset": {
+      "type": "boolean",
+      "description": "Run in a fresh isolated session with Chrome password manager disabled."
+    },
+    "verify": {
+      "type": "string",
+      "minLength": 1,
+      "description": "JavaScript expression polled after all steps complete."
+    },
+    "verify_timeout_s": {
+      "type": "number",
+      "minimum": 0,
+      "default": 10,
+      "description": "Maximum seconds to poll verify."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "reset": {
+        "const": true
+      }
+    },
+    "required": [
+      "reset"
+    ]
+  },
+  "then": {
+    "required": [
+      "url"
+    ]
+  },
+  "$defs": {
+    "commonFlags": {
+      "expect": {
+        "const": "navigation"
+      },
+      "once": {
+        "type": "boolean",
+        "description": "Execute at most once; disables retries and keyboard fallback."
+      }
+    },
+    "targetFields": {
+      "target": {
+        "type": "string",
+        "minLength": 1
+      },
+      "describe": {
+        "type": "string"
+      },
+      "nth": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "match": {
+        "const": "regex"
+      },
+      "decide": {
+        "type": "boolean"
+      },
+      "navigates": {
+        "type": "boolean"
+      },
+      "expect": {
+        "const": "navigation"
+      },
+      "once": {
+        "type": "boolean"
+      }
+    },
+    "step": {
+      "type": "object",
+      "oneOf": [
+        {
+          "title": "click",
+          "required": [
+            "action",
+            "target"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "click"
+            },
+            "role": {
+              "enum": [
+                "button",
+                "checkbox",
+                "combobox",
+                "gridcell",
+                "link",
+                "menuitem",
+                "menuitemcheckbox",
+                "menuitemradio",
+                "option",
+                "radio",
+                "searchbox",
+                "switch",
+                "tab",
+                "textbox"
+              ]
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1
+            },
+            "describe": {
+              "type": "string"
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "match": {
+              "const": "regex"
+            },
+            "decide": {
+              "type": "boolean"
+            },
+            "navigates": {
+              "type": "boolean"
+            },
+            "expect": {
+              "const": "navigation"
+            },
+            "once": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "title": "fill",
+          "required": [
+            "action",
+            "target"
+          ],
+          "oneOf": [
+            {
+              "required": [
+                "value"
+              ]
+            },
+            {
+              "required": [
+                "value_env"
+              ]
+            }
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "fill"
+            },
+            "role": {
+              "enum": [
+                "combobox",
+                "searchbox",
+                "textbox"
+              ]
+            },
+            "value": {
+              "type": "string"
+            },
+            "value_env": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "secret": {
+              "type": "boolean"
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1
+            },
+            "describe": {
+              "type": "string"
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "match": {
+              "const": "regex"
+            },
+            "decide": {
+              "type": "boolean"
+            },
+            "navigates": {
+              "type": "boolean"
+            },
+            "expect": {
+              "const": "navigation"
+            },
+            "once": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "title": "select",
+          "required": [
+            "action",
+            "target",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "select"
+            },
+            "role": {
+              "enum": [
+                "combobox",
+                "listbox"
+              ]
+            },
+            "value": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1
+            },
+            "describe": {
+              "type": "string"
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "match": {
+              "const": "regex"
+            },
+            "decide": {
+              "type": "boolean"
+            },
+            "navigates": {
+              "type": "boolean"
+            },
+            "expect": {
+              "const": "navigation"
+            },
+            "once": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "title": "check",
+          "required": [
+            "action",
+            "target"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "check"
+            },
+            "role": {
+              "enum": [
+                "checkbox",
+                "radio",
+                "switch"
+              ]
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1
+            },
+            "describe": {
+              "type": "string"
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "match": {
+              "const": "regex"
+            },
+            "decide": {
+              "type": "boolean"
+            },
+            "navigates": {
+              "type": "boolean"
+            },
+            "expect": {
+              "const": "navigation"
+            },
+            "once": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "title": "press",
+          "required": [
+            "action",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "press"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expect": {
+              "const": "navigation"
+            },
+            "once": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

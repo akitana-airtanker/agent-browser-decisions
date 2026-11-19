@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint and format check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Run unit, property-based, and stateful tests
+        run: uv run pytest -v
+
+      - name: Validate example plans
+        run: |
+          for plan in examples/*.json; do
+            uv run agent-browser-decisions validate "$plan"
+          done
+
+      - name: Build distributions and verify sdist hygiene
+        run: |
+          uv build --out-dir dist-check
+          python3 -c '
+          import tarfile, glob
+          tar_path = glob.glob("dist-check/*.tar.gz")[0]
+          with tarfile.open(tar_path) as tf:
+              names = tf.getnames()
+          forbidden = [n for n in names if ".hypothesis" in n or "results" in n or n.endswith("/.env")]
+          assert not forbidden, f"Forbidden files in sdist: {forbidden}"
+          print(f"sdist clean ({len(names)} files)")
+          '
+          rm -rf dist-check

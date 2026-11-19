@@ -1,0 +1,17 @@
+{
+  "$schema": "../schema/plan.schema.json",
+  "url": "https://news.ycombinator.com/",
+  "goal": "Open the comments page of the third story.",
+  "reset": true,
+  "steps": [
+    {
+      "action": "click",
+      "target": "^(\\d+\\s*comments?|discuss)$",
+      "match": "regex",
+      "nth": 3,
+      "role": "link",
+      "describe": "the comments link of the third story"
+    }
+  ],
+  "verify": "location.pathname === '/item' && new URLSearchParams(location.search).has('id')"
+}

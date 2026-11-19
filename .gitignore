@@ -1,4 +1,12 @@
 .venv/
 __pycache__/
-results*.jsonl
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
 .env
+results*.jsonl
+results*.transcripts/

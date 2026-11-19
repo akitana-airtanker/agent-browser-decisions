@@ -1,10 +1,10 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
 name = "agent-browser-decisions"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx", extra = ["http2"] },

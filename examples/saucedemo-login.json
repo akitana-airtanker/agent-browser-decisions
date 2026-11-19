@@ -1,0 +1,32 @@
+{
+  "$schema": "../schema/plan.schema.json",
+  "url": "https://www.saucedemo.com/",
+  "goal": "Log in with credentials from environment variables and open the cart.",
+  "reset": true,
+  "steps": [
+    {
+      "action": "fill",
+      "target": "Username",
+      "value_env": "SAUCEDEMO_USER",
+      "secret": false
+    },
+    {
+      "action": "fill",
+      "target": "Password",
+      "value_env": "SAUCEDEMO_PASSWORD"
+    },
+    {
+      "action": "click",
+      "target": "Login",
+      "role": "button",
+      "expect": "navigation",
+      "once": true
+    },
+    {
+      "action": "click",
+      "target": "Cart",
+      "describe": "the shopping cart icon in the header"
+    }
+  ],
+  "verify": "location.pathname === '/cart.html'"
+}

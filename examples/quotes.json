@@ -1,0 +1,19 @@
+{
+  "$schema": "../schema/plan.schema.json",
+  "url": "https://quotes.toscrape.com/",
+  "goal": "Open the 'inspirational' tag, then go to its second page.",
+  "reset": true,
+  "steps": [
+    {
+      "action": "click",
+      "target": "inspirational",
+      "role": "link"
+    },
+    {
+      "action": "click",
+      "target": "Next",
+      "role": "link"
+    }
+  ],
+  "verify": "location.pathname === '/tag/inspirational/page/2/'"
+}

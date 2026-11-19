@@ -15,22 +15,27 @@ Web 操作は、次の優先順（上が優先）で**手順書（plan JSON）**
 | 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、iframe / Shadow DOM / ファイルアップロード / 件数カウント | **`agent-browser` 直接** |
 | 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・複数条件の検索・画面遷移など） | **手順書（`agent-browser-decisions`）** |
 
-- **手順書の3段階解決**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし）→ ② `nth` 未指定で曖昧または不一致なら OpenAI Decisions API が観測済みの互換 ref だけから選ぶ → ③ 解決不能または効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
+- **手順書の3段階解決**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし）→ ② `nth` 未指定で曖昧または不一致なら OpenAI Decisions API が観測済みの互換 ref だけから選ぶ（429/5xx は自動で有界リトライ）→ ③ 解決不能または効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
 - **`agent-browser` 直接操作の詳細**: CLI 構文やトラブルシュートが必要なら `agent-browser skills get core` を参照する。
 
-## Run
+## Setup & Run
 
-前提: `agent-browser`（`npm i -g agent-browser && agent-browser install`）と `uv` が入っていること。未導入なら先にリポジトリを取得する。第1段階（ラベル一致）だけで通る手順書は `OPENAI_API_KEY` 不要。第2段階を使う場合だけプロジェクト直下の `.env`（または環境変数）に `OPENAI_API_KEY` を設定する（CLI が `$ABD/.env` を自動読み込みし、既存の環境変数は上書きしない）。
+前提: `agent-browser`（`npm i -g agent-browser && agent-browser install`）と `uv` が入っていること。第1段階（ラベル一致）だけで通る手順書は `OPENAI_API_KEY` 不要。第2段階を使う場合だけ環境変数または `.env` に設定する（CLI は `--env-file` → `./.env` → リポジトリ直下の `.env` の順で自動読込し、既存環境変数は上書きしない）。
 
 ```bash
+# グローバル CLI として入れる場合（推奨）
+uv tool install git+https://github.com/akitana-airtanker/agent-browser-decisions.git
+agent-browser-decisions doctor
+
+# ローカル clone から使う場合
 ABD="${AGENT_BROWSER_DECISIONS_DIR:-$HOME/src/agent-browser-decisions}"
-git clone https://github.com/akitana-airtanker/agent-browser-decisions.git "$ABD" && cd "$ABD" && uv sync && cp .env.example .env
+git clone https://github.com/akitana-airtanker/agent-browser-decisions.git "$ABD" && cd "$ABD" && uv sync
+uv run --project "$ABD" agent-browser-decisions doctor
 ```
 
-事前に画面のスナップショット（`- button "Login" [ref=e3]` の引用符内が `target`、`button` が `role`）を確かめてから手順書 JSON を書き、検証・実行する:
+事前に画面のスナップショット（`- button "Login" [ref=e3]` の引用符内が `target`、`button` が `role`）を確かめてから手順書 JSON を書き、検証・実行する（`agent-browser-decisions` が `PATH` にない場合は `uv run --project "$ABD" agent-browser-decisions` に読み替える）:
 
 ```bash
-ABD="${AGENT_BROWSER_DECISIONS_DIR:-$HOME/src/agent-browser-decisions}"
 URL="https://www.saucedemo.com/"
 
 # 事前確認: 実際のラベルと役割（role）を読み、確認用セッションは閉じる
@@ -43,31 +48,33 @@ cat > /tmp/plan.json <<'EOF'
   "goal": "Log in and open the cart.",
   "reset": true,
   "steps": [
-    {"action": "fill", "target": "Username", "value": "standard_user"},
-    {"action": "fill", "target": "Password", "value": "secret_sauce"},
-    {"action": "click", "target": "Login", "role": "button", "expect": "navigation"},
+    {"action": "fill", "target": "Username", "value_env": "SAUCEDEMO_USER", "secret": false},
+    {"action": "fill", "target": "Password", "value_env": "SAUCEDEMO_PASSWORD"},
+    {"action": "click", "target": "Login", "role": "button", "expect": "navigation", "once": true},
     {"action": "click", "target": "Cart", "describe": "the shopping cart icon in the header"}
   ],
   "verify": "location.pathname === '/cart.html'"
 }
 EOF
 
-uv run --project "$ABD" agent-browser-decisions validate /tmp/plan.json
-uv run --project "$ABD" agent-browser-decisions run /tmp/plan.json
+agent-browser-decisions validate /tmp/plan.json
+SAUCEDEMO_USER=standard_user SAUCEDEMO_PASSWORD=secret_sauce agent-browser-decisions run /tmp/plan.json
 ```
 
-途中から既存セッションで再開するときは `run /tmp/plan.json --session <session> --from-step <N>` を使う。
+途中から既存セッションで再開するときは `run /tmp/plan.json --session <session> --from-step <N>` を使う。タイムアウト調整は `--timeout <秒>`（ブラウザ）/ `--api-timeout <秒>`（API）。
 
 ## Plan schema
 
-`validate` は未定義キー・型誤り・不正な組み合わせを実行前に `rc 2` で弾く。
+`validate` は未定義キー・型誤り・不正な組み合わせを実行前に `rc 2` で弾く（JSON Schema は `schema/plan.schema.json`）。
 
 - トップレベル:
-  - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `verify`（JS 式文字列）, `reset`（boolean）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）
+  - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `verify`（JS 式文字列）, `reset`（boolean）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）, `$schema`（任意）
 - 各手順:
   - `action`（必須: `click` | `fill` | `select` | `check` | `press`）
   - `target`（`press` 以外は必須、`press` では指定不可）
-  - `value`（`fill` / `select` / `press` で必須、`click` / `check` では指定不可。`press` はキー名）
+  - `value`（`fill` / `select` / `press` で必須。ただし `fill` は `value_env` で代替可。`click` / `check` では指定不可）
+  - `value_env`（`fill` 専用。実行時に環境変数から値を読む。未設定ならブラウザ起動前に `rc 2` で失敗）
+  - `secret`（`fill` 専用 boolean。`true` でエラー出力から値を `[REDACTED]` に伏せる。`value_env` 使用時は既定 `true`）
   - `role`（任意・`action` と互換な ARIA role のみ、`press` では不可）
   - `nth`（1 以上の整数。`decide: true` と併用不可）
   - `match`（`"regex"` のみ。通常一致では書かない。`decide: true` と併用不可）
@@ -79,6 +86,7 @@ uv run --project "$ABD" agent-browser-decisions run /tmp/plan.json
 
 ## Plan rules
 
+- **機密値は `value_env` を使う**: パスワード・API キー・トークンは手順書 JSON に平文で書かず、`value_env` で環境変数から渡す。
 - **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く。短縮しすぎると前方一致で別ボタン（例: `"Log in"` → `"Log in with Google"`）に当たることがある。
 - **動的に開く部品と `role`**: カレンダーや候補リストなど操作の途中で開く部品は、可能なら事前に1度開いて確認する。`role` はスナップショットで実際に確認した要素にだけ書く（推測で書くと3秒待ってから解除されるか、正しい要素が候補から外れる）。未確認のまま書く手順は `role` を省き `describe` を添える。
 - **順番と同一ラベル**: 「3番目の結果」のような順番指定は判断モデルに数えさせず `nth` を使う（例: `{"action": "click", "target": "^\\d+\\s*comments?$", "match": "regex", "nth": 3}`）。各商品の「Add to cart」のように項目名を含まない同一ラベルが並ぶとき、順番が固定なら `nth`、並び順が変わりうるなら `agent-browser` の直接操作に切り替える。既存手順書の再実行前も `nth` の位置と対象が一致しているか確かめる。
@@ -88,23 +96,23 @@ uv run --project "$ABD" agent-browser-decisions run /tmp/plan.json
   - 支払い・投稿・申し込み・削除確定など取り消せない送信は手順書に入れず、直前で止めて直接操作で1回だけ押す。それ以外でも応答が遅く二重実行を避けたい手順には `"once": true` を付ける。
   - `select` の反映確認は未検査（常に `ok`）なので、選択結果が重要なら `verify` で `.value` や表示テキストを検査する。
 - **`verify` の書き方**: `verify` には JSON 化できる JS 式を書く。真になるプリミティブ、`{}`/`[]`、または `{"passed": true}` が合格。`undefined`・`NaN`・構文エラー・非ゼロ終了・`{"passed": false}` は不合格。`verify` を省くと `verified: null` のまま全手順完了で `ok: true` になるため、最終状態を保証したいときは必ず書く。入力欄は `innerText` ではなく `.value` で調べる。
-- **`reset` と `--session`**: `"reset": true` は `url` 必須で、パスワード管理を切った新しい独立セッションを起動し、成功時のみ自動で閉じる（`--session` とは併用不可）。ログイン済みの既存セッションを引き継ぐときは `"reset": false`（または省略）＋ `--session <名前>` を渡す。`url` があると既存セッションでも開き直し、開いていたダイアログを閉じるため、今の画面から続けるときは `url` を省く。
+- **`reset` と `--session`**: `"reset": true` は `url` 必須で、パスワード管理を切った新しい独立セッションを起動し、成功時・中断時に自動で閉じる（`--session` とは併用不可）。ログイン済みの既存セッションを引き継ぐときは `"reset": false`（または省略）＋ `--session <名前>` を渡す。`url` があると既存セッションでも開き直し、開いていたダイアログを閉じるため、今の画面から続けるときは `url` を省く。
 
 ## Result, exit codes & direct takeover
 
 | Exit | 意味 | JSON の主なフィールド |
 | --- | --- | --- |
 | `0` | 全手順が実行・確認され、`verify` も合格（または未指定） | `ok: true`, `verified: true \| null`, `session_open: false`（`reset` 時） |
-| `1` | 手順失敗・`verify` 不合格・`open`/タイムアウト等の実行時エラー | `ok: false`, `stopped_at_step`（`0` は開始前）, `session`, `session_open`, `error`, `steps[]`（`chose`, `effect`, `reason`） |
-| `2` | スキーマ違反またはオプション矛盾（`reset: true` + `--session` 等） | `ok: false`, `problems: [...]`（ブラウザ未操作） |
+| `1` | 手順失敗・`verify` 不合格・`open`/タイムアウト/中断等の実行時エラー | `ok: false`, `stopped_at_step`（`0` は開始前）, `session`, `session_open`, `error`, `steps[]`（`chose`, `effect`, `reason`） |
+| `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
 - **引き継ぎと途中再開**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っている。`stopped_at_step` と `steps[]` の `chose` / `effect` を確認し、次のどちらかで続ける。
   - 直接操作: `agent-browser --session <session> snapshot -i` → `click @eN` … → 終わったら `agent-browser --session <session> close`。
-  - 途中再開: 手順書を直し、`uv run --project "$ABD" agent-browser-decisions run /tmp/plan.json --session <session> --from-step <stopped_at_step>` で実行する（同じ手順書を step 1 から丸ごと再実行しない。済んだ手順の二重実行や選択済み要素での停止を避けるため）。
+  - 途中再開: 手順書を直し、`agent-browser-decisions run /tmp/plan.json --session <session> --from-step <stopped_at_step>` で実行する（同じ手順書を step 1 から丸ごと再実行しない。済んだ手順の二重実行や選択済み要素での停止を避けるため）。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。
   - 原稿どおりの文を入れる欄では、1回入力したら表示値（リッチテキストでは本文）を読み戻して照合する。不一致でも繰り返し入力せず（追記重複の原因）、実際に編集可能な要素を調べ直す。
 - **直接操作でのログインとプロファイル**:
-  - ログインを伴う直接操作では、パスワード管理のポップアップが操作を奪うのを防ぐため、`PROFILE="$(uv run --project "$ABD" agent-browser-decisions profile)"` で作った一時プロファイルを `--profile "$PROFILE"` に渡す（セッション終了後に `rm -rf "$PROFILE"` で掃除する）。
+  - ログインを伴う直接操作では、パスワード管理のポップアップが操作を奪うのを防ぐため、`PROFILE="$(agent-browser-decisions profile)"` で作った一時プロファイルを `--profile "$PROFILE"` に渡す（セッション終了後に `rm -rf "$PROFILE"` で掃除する）。
   - 普段のブラウザのログイン状態（`--profile Default`）は OS の保護やパス差異で読めないことが多い。最初から `--headed` を付けて開き、ログインは利用者に画面で行ってもらう（`--headed` と `--profile "$PROFILE"` は併用できる）。
 - **後片付け**: 自分が開いた `--session` だけを閉じる。`close --all` は他の作業のセッションも閉じるため使わない。
