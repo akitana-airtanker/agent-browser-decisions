@@ -28,33 +28,34 @@ The model only chooses an observed ref. It never writes selectors, text, or code
 ```
 
 ```bash
-agent-browser-decisions validate plan.json   # schema check, no browser
-agent-browser-decisions run plan.json        # JSON result; exit 0 only if every step ran and verify passed
+agent-browser-decisions validate plan.json                           # schema check, no browser (exit 0 / 2)
+agent-browser-decisions run plan.json                                # JSON result (exit 0 / 1 / 2)
+agent-browser-decisions run plan.json --session NAME --from-step 3   # resume in an existing session
 ```
 
-`reset` runs the plan in a fresh, isolated agent-browser session (closed on success, kept open on failure so a caller can continue with `agent-browser --session <session>`). Clearing cookies and storage inside one long-lived browser was unreliable: logins stopped sticking. `--session NAME` runs in an existing session.
+`reset: true` (requires `url`; cannot be combined with `--session`) runs the plan in a fresh, isolated agent-browser session with Chrome's password manager disabled (closed on success, kept open on failure so a caller can continue with `agent-browser --session <session>` or `--from-step`). Clearing cookies and storage inside one long-lived browser was unreliable: logins stopped sticking, and Chrome's save-password / leak-warning prompts otherwise swallow mouse and keyboard events to the page. For direct agent-browser use, `agent-browser --session NAME --profile "$(agent-browser-decisions profile)" open URL` launches the same way (remove the printed temp dir when done).
 
-Sessions launched by `reset` use a fresh Chrome profile with the password manager turned off: after a successful login, Chrome's save-password prompt or leak warning otherwise swallows every mouse and keyboard event to the page (JavaScript still works), so later clicks silently do nothing. For direct agent-browser use, `agent-browser --session NAME --profile "$(agent-browser-decisions profile)" open URL` launches the same way. `verify` is a JavaScript expression polled in the
-page for up to `verify_timeout_s` (default 10); truthy, or an object with `passed: true`, counts as verified.
-The result reports `stopped_at_step` and per-step `tier`, `chose`, and `effect`, so a caller can take over from the
-failed step.
+`verify` is a JavaScript expression polled in the page for up to `verify_timeout_s` (default 10). JSON-serialisable truthy results (including `{}` and `[]`) or `{"passed": true}` count as verified; non-JSON output (`undefined`, `NaN`, syntax errors), non-zero exits, and `{"passed": false}` fail.
 
-From another directory: `uv run --project /path/to/agent-browser-decisions --env-file /path/to/.env
-agent-browser-decisions run plan.json`.
+Exit codes: `0` = all steps ran and verified (`verified: null` when `verify` is omitted); `1` = runtime / step / verify failure (`stopped_at_step`, `session`, `session_open`, `error`); `2` = invalid plan or option combination (`problems`).
+
+From another directory: `uv run --project /path/to/agent-browser-decisions agent-browser-decisions run plan.json` (automatically loads `/path/to/agent-browser-decisions/.env` without overriding existing environment variables).
 
 ## Plan steps
 
 ```python
 {
     "action": "click" | "fill" | "select" | "check" | "press",
-    "target": "Search",  # label; match="regex" for a pattern
+    "target": "Search",  # label (Unicode-aware NFKC match); match="regex" for a pattern
     "value": "Zurich",  # fill / select / press
-    "role": "button",  # optional; also a wait condition (see below)
-    "nth": 3,  # optional positional pick among label hits
+    "role": "button",  # optional (must be compatible with action); also a wait condition
+    "nth": 3,  # optional 1-based positional pick among label hits (never falls back to unrelated elements)
     "describe": "the comments link of the THIRD story",  # text given to the decision model
     "expect": "navigation",  # optional effect to verify
-    "decide": True,
-}  # skip label matching for this step
+    "navigates": False,  # optional; set False on links that do not change the URL
+    "once": True,  # optional; execute at most once (disables retries and keyboard fallback)
+    "decide": True,  # optional; skip label matching (cannot combine with nth or match)
+}
 ```
 
 Write `role` only for elements seen during reconnaissance. A role means "wait until elements of this role exist";
@@ -64,18 +65,19 @@ it is relaxed only if none appear within 3 s.
 
 | Action | Check | On failure |
 | --- | --- | --- |
-| fill | field value equals the plan value | repeat once |
-| check | element is checked | repeat once |
-| link click, `expect="navigation"` | document URL (without fragment) changes | keyboard activation, then repeat or exclude a model-chosen ref |
-| other click, press | snapshot changes within 1 s | repeat once |
+| fill | field value equals the plan value (preserving whitespace & newlines) | repeat once (unless `once: true`) |
+| check | element is checked | repeat once (unless `once: true`) |
+| select | unchecked (`ok`) — verify via `verify` if critical | — |
+| link click (`navigates` ≠ `false`), `expect="navigation"` | document URL (without fragment) changes | keyboard activation (unless `once: true`), then repeat or exclude a model-chosen ref |
+| other click, press | snapshot changes within 1 s | repeat once (unless `once: true`) |
 
-Steps act only on a settled page: two consecutive identical snapshots.
+Steps act only on a settled page: two consecutive identical snapshots. If a step exhausts retries and still has `no_effect` or `wrong_target`, the plan stops with `ok: false` at `stopped_at_step`.
 
 ## Agent skill
 
 This repository bundles an agent skill at [`skills/agent-browser-decisions/SKILL.md`](skills/agent-browser-decisions/SKILL.md) (in Japanese) for Claude Code, Codex, and other agents supporting the `SKILL.md` convention.
 
-It teaches the agent when to write a plan vs. drive `agent-browser` directly, enforces safe plan rules (omit unseen `role`, use `nth` for ordinal choices, keep irreversible submissions out of plans), and handles takeover from `stopped_at_step`.
+It teaches the agent when to write a plan vs. drive `agent-browser` directly, enforces safe plan rules (omit unseen `role`, use `nth` for ordinal choices, use `navigates: false` / `once: true` appropriately, keep irreversible submissions out of plans), and handles takeover or `--from-step` resumption from `stopped_at_step`.
 
 Install with the Skills CLI:
 
@@ -87,8 +89,7 @@ Or copy/symlink `skills/agent-browser-decisions` from a local clone into `~/.age
 
 ## Requirements
 
-- [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH`, connected to a browser
-  (for example `agent-browser connect 9222` to a Chrome started with `--remote-debugging-port=9222`).
+- [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH` (for `reset: true` or `open`, it launches its own browser; to reuse an existing Chrome, connect via `agent-browser connect 9222`).
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 - An OpenAI API key that can call the Decisions API. Tier 1 steps need no key.
 
