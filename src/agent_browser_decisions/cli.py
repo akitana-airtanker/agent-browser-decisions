@@ -181,6 +181,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="close --session automatically on success (leaves it open on failure for Tier 3 handoff)",
     )
+    run.add_argument(
+        "--decisions",
+        action="store_true",
+        help=(
+            "enable Tier 2 decision model fallback when label matching fails or is ambiguous "
+            "(default: off; implied by --mode decide, --provider, --model, or --base-url)"
+        ),
+    )
     run.add_argument("--env-file", help="optional .env file to load missing environment variables from")
     _add_decision_flags(run)
     run.add_argument(
@@ -241,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if not problems else 2
 
     load_dotenv_files(args.env_file)
+    use_decisions = bool(args.decisions or args.mode == "decide" or args.provider or args.model or args.base_url)
     result = run_plan_file(
         plan,
         mode=args.mode,
@@ -256,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         provider=args.provider,
         model=args.model,
         base_url=args.base_url,
+        allow_decisions=use_decisions,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("problems"):

@@ -86,10 +86,11 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   - `expect`（`"navigation"` のみ）
   - `navigates`（boolean。URL 遷移しない `link` で `false` を指定）
   - `once`（boolean。`true` で再試行と Enter フォールバックを無効化し最大1回実行）
-  - `decide`（boolean。`true` で第1段階を飛ばし第2段階へ直接送る。`nth` / `match` と併用不可）
+  - `decide`（boolean。`true` で第1段階を飛ばし第2段階へ直接送る。`nth` / `match` と併用不可。実行時に `--decisions` 等で第2段階を有効化する必要あり）
 
 ## Plan rules
 
+- **第2段階（Decisions API）は既定オフ**: `run` は既定で第1段階＋第3段階のみで動作し、環境変数に API キーがあっても外部 API へ URL・候補名を送らない。同名リンク等で第2段階を使いたいときだけ `--decisions`（または `--provider` / `--model` / `--mode decide`）を明示する。
 - **機密値は `value_env` を使う**: パスワード・API キー・トークンは手順書 JSON に平文で書かず、`value_env` で環境変数から渡す。
 - **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く。短縮しすぎると前方一致で別ボタン（例: `"Log in"` → `"Log in with Google"`）に当たることがある。
 - **動的に開く部品と `role`**: カレンダーや候補リストなど操作の途中で開く部品は、可能なら事前に1度開いて確認する。`role` はスナップショットで実際に確認した要素にだけ書く（推測で書くと3秒待ってから解除されるか、正しい要素が候補から外れる）。未確認のまま書く手順は `role` を省き `describe` を添える。

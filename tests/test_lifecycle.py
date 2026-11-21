@@ -1043,3 +1043,84 @@ def test_cli_and_runner_do_not_eagerly_import_httpx() -> None:
     )
     res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stderr
+
+
+def test_tier2_disabled_by_default_even_when_api_key_in_env() -> None:
+    """Default runs never call Tier 2 Decisions API even if API keys exist in environ."""
+    ambiguous_snap = '- button "Save" [ref=e1]\n- button "Save" [ref=e2]\n- button "Delete" [ref=e3]'
+    decisions_clients: list[FailingDecisionsClient] = []
+
+    def make_decisions(**kwargs: Any) -> FailingDecisionsClient:
+        d = FailingDecisionsClient(**kwargs)
+        decisions_clients.append(d)
+        return d
+
+    runner = PlanRunner(
+        browser_factory=lambda session=None, **kw: SequenceBrowser([ambiguous_snap], session=session, **kw),
+        decisions_factory=make_decisions,
+        settle_s=0.05,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    env = {"OPENAI_API_KEY": "sk-ambient-key", "OPENROUTER_API_KEY": "sk-or-ambient"}
+
+    # Case 1: label miss with multiple candidates -> Tier 3 handoff, 0 Tier 2 calls
+    res_miss = runner.run_plan_file(
+        {"steps": [{"action": "click", "target": "Close", "role": "button"}]},
+        session="s-miss",
+        environ=env,
+    )
+    assert res_miss["ok"] is False
+    assert res_miss["session_open"] is True
+    assert res_miss["stopped_at_step"] == 1
+    assert "stopped_snapshot" in res_miss
+    assert res_miss["steps"][0]["tier"] == 3
+    assert "--decisions" in res_miss["steps"][0]["reason"]
+    assert all(d.calls == 0 for d in decisions_clients)
+
+    # Case 2: ambiguous label match -> Tier 3 handoff, 0 Tier 2 calls
+    res_amb = runner.run_plan_file(
+        {"steps": [{"action": "click", "target": "Save", "role": "button"}]},
+        session="s-amb",
+        environ=env,
+    )
+    assert res_amb["ok"] is False
+    assert res_amb["steps"][0]["tier"] == 3
+    assert "ambiguous" in res_amb["steps"][0]["reason"]
+    assert all(d.calls == 0 for d in decisions_clients)
+
+    # Case 3: step with decide: True in plan JSON -> blocked unless explicitly opted in
+    res_step_decide = runner.run_plan_file(
+        {"steps": [{"action": "click", "target": "Save", "role": "button", "decide": True}]},
+        session="s-step",
+        environ=env,
+    )
+    assert res_step_decide["ok"] is False
+    assert res_step_decide["steps"][0]["tier"] == 3
+    assert "--decisions" in res_step_decide["steps"][0]["reason"]
+    assert all(d.calls == 0 for d in decisions_clients)
+
+
+def test_cli_decisions_opt_in_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI defaults to allow_decisions=False and enables it when --decisions or --provider is passed."""
+    from agent_browser_decisions import cli
+
+    plan_path = tmp_path / "p.json"
+    plan_path.write_text('{"steps": [{"action": "click", "target": "Go"}]}', encoding="utf-8")
+    recorded: list[bool | None] = []
+
+    def fake_run_plan_file(plan: Any, **kwargs: Any) -> dict[str, Any]:
+        recorded.append(kwargs.get("allow_decisions"))
+        return {"ok": True, "session": "s", "session_open": False, "verified": None, "steps": []}
+
+    monkeypatch.setattr(cli, "run_plan_file", fake_run_plan_file)
+    monkeypatch.setattr(cli, "load_dotenv_files", lambda _=None: None)
+
+    assert cli.main(["run", str(plan_path)]) == 0
+    assert cli.main(["run", str(plan_path), "--decisions"]) == 0
+    assert cli.main(["run", str(plan_path), "--provider", "openrouter"]) == 0
+    assert cli.main(["run", str(plan_path), "--mode", "decide"]) == 0
+    capsys.readouterr()
+    assert recorded == [False, True, True, True]

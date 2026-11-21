@@ -90,6 +90,7 @@ class PlanRunner:
         provider: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        allow_decisions: bool | None = None,
         settle_s: float = 3.0,
         poll_s: float = 0.05,
         verify_poll_s: float = 0.5,
@@ -104,6 +105,7 @@ class PlanRunner:
         self.provider = provider
         self.model = model
         self.base_url = base_url
+        self.allow_decisions = allow_decisions
         self.settle_s = settle_s
         self.poll_s = poll_s
         self.verify_poll_s = verify_poll_s
@@ -119,11 +121,19 @@ class PlanRunner:
         mode: str,
         exclude: set[str],
         *,
+        allow_decisions: bool = False,
         initial_page: dict[str, Any] | None = None,
         last_raw_out: list[str] | None = None,
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
+        if mode == "decide" and not allow_decisions:
+            page = initial_page if initial_page is not None else browser.observe()
+            if last_raw_out is not None and isinstance(page.get("raw"), str):
+                last_raw_out[:] = [page["raw"]]
+            return None, 3, {"reason": "Tier 2 decisions disabled (pass --decisions to enable)"}, page
+
         deadline = time.perf_counter() + self.settle_s
         previous: str | None = initial_page["raw"] if initial_page is not None else None
+        last_status: str | None = None
         while True:
             page = browser.observe()
             if last_raw_out is not None and isinstance(page.get("raw"), str):
@@ -138,6 +148,7 @@ class PlanRunner:
                     break
             else:
                 element, status = match_label(step, remaining)
+                last_status = status
                 if status == "hit" and element is not None and (stable or expired):
                     return element, 1, {}, page
                 if (status == "ambiguous" and stable) or expired:
@@ -153,6 +164,13 @@ class PlanRunner:
             if mode == "label":
                 return None, 3, {"reason": "no label match (single candidate)"}, page
             return candidates[0], 2, {"single": True}, page
+        if not allow_decisions:
+            reason = (
+                "ambiguous label match (Tier 2 disabled; pass --decisions to enable)"
+                if last_status == "ambiguous"
+                else "no label match (Tier 2 disabled; pass --decisions to enable)"
+            )
+            return None, 3, {"reason": reason}, page
 
         provider = getattr(decisions, "provider", DEFAULT_PROVIDER)
         model = getattr(decisions, "model", None)
@@ -337,6 +355,7 @@ class PlanRunner:
         secrets: set[str],
         log: list[dict[str, Any]],
         *,
+        allow_decisions: bool = False,
         initial_page: dict[str, Any] | None = None,
         last_raw_out: list[str] | None = None,
     ) -> tuple[bool, dict[str, Any] | None]:
@@ -376,7 +395,15 @@ class PlanRunner:
         while True:
             step_mode = "decide" if step.get("decide") else mode
             element, tier, info, page = self._resolve(
-                browser, decisions, step, goal, step_mode, excluded, initial_page=seed_page, last_raw_out=last_raw_out
+                browser,
+                decisions,
+                step,
+                goal,
+                step_mode,
+                excluded,
+                allow_decisions=allow_decisions,
+                initial_page=seed_page,
+                last_raw_out=last_raw_out,
             )
             seed_page = None
             tiers.append(tier)
@@ -470,10 +497,16 @@ class PlanRunner:
         reload_page: bool = False,
         keep_open: bool = False,
         close_on_success: bool = False,
+        allow_decisions: bool | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """Validate, resolve vars/env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
         env_map = os.environ if environ is None else environ
+        explicit_flag = allow_decisions if allow_decisions is not None else self.allow_decisions
+        if explicit_flag is not None:
+            use_decisions = bool(explicit_flag)
+        else:
+            use_decisions = bool(mode == "decide" or self.provider or self.model or self.base_url)
         effective_provider = self.provider if self.provider is not None else env_map.get("DECISION_PROVIDER")
         merged_vars: dict[str, str] = {}
         var_problems: list[str] = []
@@ -630,6 +663,7 @@ class PlanRunner:
                             mode,
                             secrets,
                             log,
+                            allow_decisions=use_decisions,
                             initial_page=carried_page,
                             last_raw_out=last_observed_raw,
                         )
@@ -756,6 +790,7 @@ def run_plan_file(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    allow_decisions: bool | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Convenience entry point using the default PlanRunner."""
@@ -765,6 +800,7 @@ def run_plan_file(
         provider=provider,
         model=model,
         base_url=base_url,
+        allow_decisions=allow_decisions,
     ).run_plan_file(
         plan,
         mode=mode,
@@ -775,5 +811,6 @@ def run_plan_file(
         reload_page=reload_page,
         keep_open=keep_open,
         close_on_success=close_on_success,
+        allow_decisions=allow_decisions,
         environ=environ,
     )

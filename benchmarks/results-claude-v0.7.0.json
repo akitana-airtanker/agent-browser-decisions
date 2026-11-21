@@ -1,0 +1,106 @@
+{
+  "date": "2026-11-22",
+  "model": "claude-opus-5-5",
+  "agent_browser_decisions": "0.7.0",
+  "prompt": "/agent-browser-decisions を使って /tmp/httpbin-label-drift.json を実行してください。もし途中で失敗したら、原因を調べて手順書を直し、Submit order は押さずに全7項目を入力・検証完了まで通して、最後にブラウザセッションを閉じてください。",
+  "returncode": 0,
+  "wall_ms": 48136,
+  "duration_ms": 45914,
+  "num_turns": 8,
+  "total_cost_usd": 0.4423336,
+  "is_error": false,
+  "leaked_sessions_closed": [],
+  "tool_calls": [
+    {
+      "name": "Bash",
+      "input": {
+        "command": "cat /tmp/httpbin-label-drift.json; echo; which agent-browser agent-browser-decisions",
+        "description": "手順書の中身と CLI の有無を確認"
+      }
+    },
+    {
+      "name": "Bash",
+      "input": {
+        "command": "cd /tmp && agent-browser-decisions run /tmp/httpbin-label-drift.json > /tmp/abd-run1.json 2>/tmp/abd-run1.err; echo \"rc=$?\"; cat /tmp/abd-run1.err | tail -20; python3 -c \"\nimport json;d=json.load(open('/tmp/abd-run1.json'))\nfor k in ['ok','verified','stopped_at_step','session','session_open','error']: print(k,'=',d.get(k))\nfor s in d.get('steps',[]): print({k:s.get(k) for k in ('index','action','target','chose','effect','reason','status','ok')})\n\"",
+        "description": "手順書を実行して結果を要約",
+        "timeout": 300000
+      }
+    },
+    {
+      "name": "Bash",
+      "input": {
+        "command": "python3 -c \"\nimport json;d=json.load(open('/tmp/abd-run1.json'))\nprint(json.dumps(d['steps'][-1],ensure_ascii=False,indent=1))\nprint('----- stopped_snapshot -----')\ns=d.get('stopped_snapshot'); print(s if isinstance(s,str) else json.dumps(s,ensure_ascii=False,indent=1))\n\"",
+        "description": "停止手順の詳細と停止時スナップショットを表示"
+      }
+    },
+    {
+      "name": "Bash",
+      "input": {
+        "command": "S=abd-1795300741520-69058; agent-browser --session \"$S\" eval \"(() => { const t=document.querySelector('[name=comments]'); return {tag:t?.tagName, label:t?.closest('label')?.textContent.trim() ?? [...(t?.labels||[])].map(l=>l.textContent.trim()), value:t?.value}; })()\"",
+        "description": "comments 欄のタグとラベルを DOM で確認"
+      }
+    },
+    {
+      "name": "Bash",
+      "input": {
+        "command": "cp /tmp/httpbin-label-drift.json /tmp/httpbin-label-drift.json.bak && python3 - <<'EOF'\nimport json\np='/tmp/httpbin-label-drift.json'\nd=json.load(open(p))\nst=d['steps'][6]\nassert st['target']=='Delivery notes:' and st['action']=='fill'\nst['target']='Delivery instructions:'\njson.dump(d,open(p,'w'),ensure_ascii=False,indent=2); open(p,'a').write('\\n')\nEOF\ndiff /tmp/httpbin-label-drift.json.bak /tmp/httpbin-label-drift.json",
+        "description": "step 7 のラベルを修正し差分を表示"
+      }
+    },
+    {
+      "name": "Bash",
+      "input": {
+        "command": "cd /tmp && S=abd-1795300741520-69058; agent-browser-decisions run /tmp/httpbin-label-drift.json --session \"$S\" --from-step 7 --close > /tmp/abd-run2.json 2>/tmp/abd-run2.err; echo \"rc=$?\"; tail -5 /tmp/abd-run2.err; python3 -c \"\nimport json;d=json.load(open('/tmp/abd-run2.json'))\nfor k in ['ok','verified','stopped_at_step','session','session_open','error']: print(k,'=',d.get(k))\nfor s in d.get('steps',[]): print({k:s.get(k) for k in ('step','tier','target','chose','effect','reason')})\n\"",
+        "description": "修正した手順書を step 7 から再開",
+        "timeout": 300000
+      }
+    },
+    {
+      "name": "Bash",
+      "input": {
+        "command": "cd /tmp && agent-browser-decisions run /tmp/httpbin-label-drift.json > /tmp/abd-run3.json 2>/tmp/abd-run3.err; echo \"rc=$?\"; tail -5 /tmp/abd-run3.err; python3 -c \"\nimport json;d=json.load(open('/tmp/abd-run3.json'))\nfor k in ['ok','verified','stopped_at_step','session','session_open']: print(k,'=',d.get(k))\nprint([(s.get('step'),s.get('tier'),s.get('effect')) for s in d.get('steps',[])])\n\"; agent-browser session list 2>/dev/null | command grep -E 'abd-1795300741520-69058|'\"$(python3 -c \"import json;print(json.load(open('/tmp/abd-run3.json')).get('session',''))\")\" || echo \"対象セッションは残っていない\"",
+        "description": "修正後の手順書を最初から通し実行し残存セッションを確認",
+        "timeout": 300000
+      }
+    }
+  ],
+  "tool_results_preview": [
+    "{\n  \"url\": \"https://httpbin.org/forms/post\",\n  \"reset\": true,\n  \"vars\": {\n    \"name\": \"Taro Yamada\",\n    \"tel\": \"090-1234-5678\",\n    \"email\": \"taro@example.com\",\n    \"size\": \"Medium\",\n    \"t1\": \"Bacon\",\n    \"t2\": \"Extra Cheese\",\n    \"note\": \"Leave at front door\"\n  },\n  \"steps\": [\n    {\n      \"action\": \"fill\",\n      \"target\": \"Customer name:\",\n      \"value\": \"{{name}}\"\n    },\n    {\n      \"action\": \"fill\",\n      \"target\": \"Telephone:\",\n      \"value\": \"{{tel}}\"\n    },\n    {\n      \"action\": \"fill\",\n      \"target\": \"E-mail address:\",\n      \"value\": \"{{email}}\"\n    },\n    {\n      \"action\": \"check\",\n      \"target\": \"{{size}}\",\n      \"role\": \"radio\"\n    },\n    {\n      \"action\": \"check\",\n      \"target\": \"{{t1}}\",\n      \"role\": \"checkbox\"\n    },\n    {\n      \"action\": \"check\",\n      \"target\": \"{{t2}}\",\n      \"role\": \"checkbox\"\n    },\n    {\n      \"action\": \"fill\",\n      \"target\": \"Delivery notes:\",\n      \"value\": \"{{note}}\"\n    }\n  ],\n  \"verify\": \"(() => { const v = n => document.querySelector(`[name=${n}]`)?.value; const sz = document.querySelector('input[name=size]:checked')?.parentElement.textContent.trim(); const tp = [...document.querySelectorAll('input[name=topping]:checked')].map(e => e",
+    "rc=1\nok = False\nverified = None\nstopped_at_step = 7\nsession = abd-1795300741520-69058\nsession_open = True\nerror = None\n{'index': None, 'action': None, 'target': 'Customer name:', 'chose': 'Customer name:', 'effect': 'ok', 'reason': None, 'status': None, 'ok': None}\n{'index': None, 'action': None, 'target': 'Telephone:', 'chose': 'Telephone:', 'effect': 'ok', 'reason': None, 'status': None, 'ok': None}\n{'index': None, 'action': None, 'target': 'E-mail address:', 'chose': 'E-mail address:', 'effect': 'ok', 'reason': None, 'status': None, 'ok': None}\n{'index': None, 'action': None, 'target': 'Medium', 'chose': 'Medium', 'effect': 'ok', 'reason': None, 'status': None, 'ok': None}\n{'index': None, 'action': None, 'target': 'Bacon', 'chose': 'Bacon', 'effect': 'ok', 'reason': None, 'status': None, 'ok': None}\n{'index': None, 'action': None, 'target': 'Extra Cheese', 'chose': 'Extra Cheese', 'effect': 'ok', 'reason': None, 'status': None, 'ok': None}\n{'index': None, 'action': None, 'target': 'Delivery notes:', 'chose': None, 'effect': None, 'reason': 'no label match (Tier 2 disabled; pass --decisions to enable)', 'status': None, 'ok': None}",
+    "{\n \"step\": 7,\n \"tier\": 3,\n \"tiers\": [\n  3\n ],\n \"target\": \"Delivery notes:\",\n \"chose\": null,\n \"effect\": null,\n \"reason\": \"no label match (Tier 2 disabled; pass --decisions to enable)\",\n \"ms\": 3038\n}\n----- stopped_snapshot -----\n- textbox \"Customer name:\" [ref=e2]: Taro Yamada\n- textbox \"Telephone:\" [ref=e3]: 090-1234-5678\n- textbox \"E-mail address:\" [ref=e4]: taro@example.com\n- radio \"Small\" [checked=false, ref=e5]\n- radio \"Medium\" [checked=true, ref=e6]\n- radio \"Large\" [checked=false, ref=e7]\n- checkbox \"Bacon\" [checked=true, ref=e8]\n- checkbox \"Extra Cheese\" [checked=true, ref=e9]\n- checkbox \"Onion\" [checked=false, ref=e10]\n- checkbox \"Mushroom\" [checked=false, ref=e11]\n- spinbutton \"時間 時間\" [ref=e14]: 0\n- spinbutton \"分 分\" [ref=e15]: 0\n- button \"時間選択ツールを表示します 時間選択ツールを表示します\" [ref=e13]\n- textbox \"Delivery instructions:\" [ref=e12]\n- button \"Submit order\" [ref=e1]",
+    "{\n  \"label\": \"Delivery instructions:\",\n  \"tag\": \"TEXTAREA\",\n  \"value\": \"\"\n}",
+    "46c46\n<       \"target\": \"Delivery notes:\",\n---\n>       \"target\": \"Delivery instructions:\",",
+    "rc=0\nok = True\nverified = True\nstopped_at_step = None\nsession = abd-1795300741520-69058\nsession_open = False\nerror = None\n{'step': 7, 'tier': 1, 'target': 'Delivery instructions:', 'chose': 'Delivery instructions:', 'effect': 'ok', 'reason': None}",
+    "rc=0\nok = True\nverified = True\nstopped_at_step = None\nsession = abd-1795300770040-69689\nsession_open = False\n[(1, 1, 'ok'), (2, 1, 'ok'), (3, 1, 'ok'), (4, 1, 'ok'), (5, 1, 'ok'), (6, 1, 'ok'), (7, 1, 'ok')]\n対象セッションは残っていない"
+  ],
+  "result_text": "全7項目の入力と検証が通り、ブラウザセッションも閉じました。Submit order は押していません。手順書に送信の手はなく、`verify` は送信前のフォームの値を読むだけです。\n\n**失敗の原因**\n- 1回目の実行は step 7（`fill` → `Delivery notes:`）で止まりました。理由は `no label match` です。\n- 停止時のスナップショットでは、この欄のラベルは `textbox \"Delivery instructions:\"` でした。DOM でも、`verify` が見ている `[name=comments]` の textarea のラベルが `Delivery instructions:` であることを確かめました。\n- 手順書の `target` とページのラベルが食い違っていたのが原因です。完全一致でも前方一致でも見つからず、判断モデル（第2段階）は既定でオフなので、ここで止まりました。\n\n**直した内容**（`/tmp/httpbin-label-drift.json`。直す前のファイルは `.bak` に残しています）\n```diff\n-      \"target\": \"Delivery notes:\",\n+      \"target\": \"Delivery instructions:\",\n```\n`vars` と `verify` は変えていません。\n\n**確認した結果**\n| 実行 | 結果 |\n| --- | --- |\n| 開いたままのセッションで `--from-step 7 --close` を実行 | `ok: true` / `verified: true` / `session_open: false` |\n| 直した手順書を step 1 から実行（`reset: true`） | 7手すべてラベル一致で解決し、`ok: true` / `verified: true` / `session_open: false` |\n\nどちらのセッションも、`session list` で残っていないことを確かめました。\n\n**ひとつ提案**\n同じようなずれへの対策として、`target` を正規表現（例: `^Delivery (notes|instructions):$`）にして両方を受け付ける手もあります。ただしお勧めしません。今回は不一致の時点で止まったので、別の欄に入力することはありませんでした。一致の条件を広げると、ページが変わったことに気づけなくなるかもしれません。ラベルがずれたら止まり、手順書を直すという今の運用のほうが安全です。",
+  "final_plan_step7": {
+    "action": "fill",
+    "target": "Delivery instructions:",
+    "value": "{{note}}"
+  },
+  "run1_elapsed_ms": 4950,
+  "run1_summary": {
+    "ok": false,
+    "verified": null,
+    "stopped_at_step": 7,
+    "session_open": true,
+    "elapsed_ms": 4950
+  },
+  "run2_elapsed_ms": 217,
+  "run2_summary": {
+    "ok": true,
+    "verified": true,
+    "stopped_at_step": null,
+    "session_open": false,
+    "elapsed_ms": 217
+  },
+  "run3_elapsed_ms": 1481,
+  "run3_summary": {
+    "ok": true,
+    "verified": true,
+    "stopped_at_step": null,
+    "session_open": false,
+    "elapsed_ms": 1481
+  }
+}

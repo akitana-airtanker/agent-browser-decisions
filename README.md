@@ -11,7 +11,7 @@ Write a declarative JSON plan once, validate it before touching a browser, and e
 ```text
 resolve → act → check effect → verify
   tier 1  deterministic label / regex / nth match on the accessibility snapshot (no model, no API key)
-  tier 2  Decision model (OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1) chooses among observed refs (bounded retries on 429/5xx/529)
+  tier 2  (opt-in via --decisions) Decision model chooses among observed refs (bounded retries on 429/5xx/529)
   tier 3  unresolved or failed effect → stop cleanly with structured JSON and hand back to caller
 ```
 
@@ -23,7 +23,7 @@ The model only ever chooses an observed `ref`. It never emits selectors, text, o
 
 - [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH` (`npm i -g agent-browser && agent-browser install`)
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
-- Any one Tier 2 API key (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, or `LIQUID_API_KEY`) — only needed when a step escalates to Tier 2; Tier 1 plans need no key
+- Optional Tier 2 API key (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, or `LIQUID_API_KEY`) — Tier 2 is **off by default** (zero external API calls even if keys exist in your environment) and only runs when explicitly enabled via `--decisions` (or `--mode decide` / `--provider` / `--model` / `--base-url`)
 
 ### Option A: Install globally as a CLI
 
@@ -143,8 +143,8 @@ agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-s
 ```bash
 agent-browser-decisions doctor [--env-file PATH] [--provider PROVIDER] [--model MODEL] [--base-url URL]
 agent-browser-decisions validate <plan.json | -> [--var KEY=VALUE]...
-agent-browser-decisions run <plan.json | -> [--mode label|decide] [--session NAME] [--from-step N] \
-                                            [--var KEY=VALUE]... [--no-open] [--close] \
+agent-browser-decisions run <plan.json | -> [--decisions] [--mode label|decide] [--session NAME] [--from-step N] \
+                                            [--var KEY=VALUE]... [--no-open] [--reload] [--keep-open] [--close] \
                                             [--provider openai|openrouter|gemini|typesafe|liquid] [--model MODEL] [--base-url URL] \
                                             [--env-file PATH] [--timeout 60] [--api-timeout 30]
 agent-browser-decisions profile
@@ -199,7 +199,7 @@ Steps act only on a settled page (two consecutive identical snapshots). Exhauste
 
 ## Safety & operational guarantees
 
-- **Bounded model surface**: Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
+- **Opt-in Tier 2 & bounded model surface**: Tier 2 is disabled by default so ambient API keys never send page URLs or labels to external endpoints unless you pass `--decisions` (or `--provider` / `--model` / `--mode decide`). When enabled, Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
 - **Unicode & injection safety**: Normalisation preserves non-ASCII scripts (Japanese, CJK, Cyrillic, Greek, dakuten) and rejects empty labels. Snapshot parsing uses escape-aware quoting so embedded `\" [ref=eN]` strings in page text cannot spoof element refs.
 - **No silent misclicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element.
 - **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets are redacted (`[REDACTED]`) from error output.
@@ -239,7 +239,7 @@ uv run pytest -v
 
 - Positional choices ("the third item") should use `nth` rather than relying on the decision model to count.
 - Repeated identical labels without per-item names in the snapshot (e.g., identical "Add to cart" buttons) require `nth` or direct `agent-browser` control.
-- Shadow DOM, iframes, file uploads, and counting widgets are best handled directly with `agent-browser`.
+- Cross-origin `frame` switches, inspecting values inside closed Shadow DOM via `verify`, and counting/conditional widgets are best handled directly with `agent-browser` (standard file `upload`, auto-inlined same-origin `iframe`, and open/closed Shadow DOM actions are supported).
 
 ## License
 
