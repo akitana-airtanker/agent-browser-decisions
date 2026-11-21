@@ -221,6 +221,7 @@ def build_runner_kripke(
     max_retries: int = 2,
     inject_unbounded_retry: bool = False,
     inject_close_on_tier3: bool = False,
+    inject_missing_counterexample: bool = False,
 ) -> KripkeModel:
     """Build the finite Kripke model of PlanRunner v0.5.0 execution & lifecycle transitions.
 
@@ -246,7 +247,10 @@ def build_runner_kripke(
     # Terminal states (self-looping for total Kripke relation)
     s_done_closed = add("DONE_OK_CLOSED", {"terminal", "done_ok", "closed"})
     s_done_open = add("DONE_OK_OPEN", {"terminal", "done_ok", "session_open"})
-    s_t3_open = add("TIER3_OPEN", {"terminal", "tier3_handoff", "session_open"})
+    t3_props = {"terminal", "tier3_handoff", "session_open"}
+    if not inject_missing_counterexample:
+        t3_props.add("has_counterexample")
+    s_t3_open = add("TIER3_OPEN", t3_props)
     s_t3_closed = add("TIER3_CLOSED", {"terminal", "tier3_handoff", "closed"})
     s_int_closed = add("INT_CLOSED", {"terminal", "interrupted", "closed"})
     s_int_open = add("INT_OPEN", {"terminal", "interrupted", "session_open"})
@@ -350,8 +354,10 @@ def test_ctl_model_check_plan_runner_v05_all_lifecycle_modes() -> None:
                 # 1. Zero deadlocks in reachable non-terminal states
                 assert verify_deadlock_freedom(model) == set()
 
-                # 2. Safety: Tier-3 handoff ALWAYS leaves browser session open
-                assert model.initial <= AG(Implies(Atom("tier3_handoff"), Atom("session_open"))).sat(model)
+                # 2. Safety: Tier-3 handoff ALWAYS leaves browser session open with a counterexample snapshot
+                assert model.initial <= AG(
+                    Implies(Atom("tier3_handoff"), And(Atom("session_open"), Atom("has_counterexample")))
+                ).sat(model)
 
                 # 3. Safety: Normal success respects exact close/warm-session contract
                 if should_close_ok:
@@ -395,6 +401,14 @@ def test_ctl_model_checker_detects_injected_bugs() -> None:
     )
     assert not (buggy_close.initial <= AG(Implies(Atom("tier3_handoff"), Atom("session_open"))).sat(buggy_close))
 
+    buggy_cegar = build_runner_kripke(
+        owns_session=True,
+        keep_open=False,
+        close_on_success=False,
+        inject_missing_counterexample=True,
+    )
+    assert not (buggy_cegar.initial <= AG(Implies(Atom("tier3_handoff"), Atom("has_counterexample"))).sat(buggy_cegar))
+
 
 # ---------------------------------------------------------------------------
 # Part 2: Operational Semantics + Forward & Backward Simulation Checking
@@ -424,6 +438,7 @@ class ConservativeSimulatedBrowser:
         self.values: dict[str, str] = {}
         self.checked: dict[str, bool] = {}
         self.clicks: list[str] = []
+        self.uploads: list[tuple[str, str]] = []
         self.url = "https://sim.example/form"
         self.closed = False
         self.eval_calls = 0
@@ -480,6 +495,12 @@ class ConservativeSimulatedBrowser:
             self.clicks.append(ref)
             self._epoch += 1
             self._transient_left = self.transient_frames_on_click
+            return True, {}
+        if op == "upload":
+            ref, path = cmd[1].lstrip("@"), cmd[2]
+            self.uploads.append((ref, path))
+            self.values[ref] = path.rsplit("/", 1)[-1]
+            self._epoch += 1
             return True, {}
         if op == "get" and cmd[1] == "value":
             ref = cmd[2].lstrip("@")
@@ -560,6 +581,7 @@ def _make_runner(browser: ConservativeSimulatedBrowser, *, disable_batch: bool =
 @given(
     n_fills=st.integers(min_value=2, max_value=5),
     add_check=st.booleans(),
+    add_upload=st.booleans(),
     add_trailing_click=st.booleans(),
     drop_idx=st.one_of(st.none(), st.integers(min_value=0, max_value=4)),
     fail_check=st.booleans(),
@@ -570,6 +592,7 @@ def _make_runner(browser: ConservativeSimulatedBrowser, *, disable_batch: bool =
 def test_forward_and_backward_simulation_conservative_vs_optimized(
     n_fills: int,
     add_check: bool,
+    add_upload: bool,
     add_trailing_click: bool,
     drop_idx: int | None,
     fail_check: bool,
@@ -584,6 +607,9 @@ def test_forward_and_backward_simulation_conservative_vs_optimized(
     if add_check:
         fields.append(("e50", "checkbox", "Agree"))
         steps.append({"action": "check", "target": "Agree", "role": "checkbox"})
+    if add_upload:
+        fields.append(("e55", "button", "Resume file"))
+        steps.append({"action": "upload", "target": "Resume file", "value": "/tmp/cv.pdf"})
     if add_trailing_click:
         fields.append(("e60", "button", "Apply"))
         steps.append({"action": "click", "target": "Apply"})
@@ -622,12 +648,16 @@ def test_forward_and_backward_simulation_conservative_vs_optimized(
     assert tgt_res["session_open"] == src_res["session_open"]
     # Critically: click side effects MUST match — optimized batch must NEVER click when conservative halted!
     assert tgt_browser.clicks == src_browser.clicks
+    assert tgt_browser.uploads == src_browser.uploads
     if src_res["ok"]:
+        assert "stopped_snapshot" not in tgt_res
         assert tgt_browser.values == src_browser.values
         assert tgt_browser.checked == src_browser.checked
-        # Efficiency: when all steps succeed with immediate verify and no click, optimized uses strictly fewer calls
-        if not add_trailing_click and verify_delay == 1:
+        # Efficiency: immediate verify with no dynamic/upload step uses strictly fewer calls.
+        if not add_trailing_click and not add_upload and verify_delay == 1:
             assert tgt_browser.call_count < src_browser.call_count
+    elif tgt_res["session_open"]:
+        assert isinstance(tgt_res.get("stopped_snapshot"), str) and tgt_res["stopped_snapshot"]
 
 
 def test_negative_proof_fusing_click_after_fill_violates_backward_simulation() -> None:
@@ -722,3 +752,52 @@ def test_append_and_extract_batch_tail_unit() -> None:
     assert passed is True
     assert val == {"passed": True, "n": 7}
     assert url == "https://a.test/done"
+
+
+def test_cegar_counterexample_snapshot_and_resume() -> None:
+    """CEGAR loop invariant: Tier-3 stop exposes redacted counterexample snapshot; patching + --from-step completes."""
+    fields = [
+        ("e1", "textbox", "Customer name"),
+        ("e2", "textbox", "API token"),
+        ("e3", "radio", "Large"),
+        ("e4", "button", "Resume file"),
+    ]
+    browser = SimulatedBrowser(fields=fields)
+    runner = _make_runner(browser, disable_batch=False)
+
+    # Initial rough plan has wrong target "Extra Large" at step 3 (simulating unseen/changed UI)
+    rough_plan = {
+        "url": "https://sim.example/form",
+        "steps": [
+            {"action": "fill", "target": "Customer name", "value": "Taro"},
+            {"action": "fill", "target": "API token", "value_env": "TEST_SECRET_TOK"},
+            {"action": "check", "target": "Extra Large", "role": "radio"},
+            {"action": "upload", "target": "Resume file", "value": "/tmp/cv.pdf"},
+        ],
+        "verify": "true",
+    }
+    env = {"TEST_SECRET_TOK": "tok-super-secret-999"}
+    res1 = runner.run_plan_file(rough_plan, session="cegar-s1", environ=env)
+    assert res1["ok"] is False
+    assert res1["session_open"] is True
+    assert res1["stopped_at_step"] == 3
+    # Counterexample snapshot is immediately returned, shows real element "Large", and redacts the secret
+    snap = res1.get("stopped_snapshot", "")
+    assert 'radio "Large"' in snap
+    assert "tok-super-secret-999" not in snap
+
+    # Refine step 3 from counterexample snapshot and resume in-place from step 3
+    refined_plan = {
+        **rough_plan,
+        "steps": [
+            *rough_plan["steps"][:2],
+            {"action": "check", "target": "Large", "role": "radio"},
+            rough_plan["steps"][3],
+        ],
+    }
+    res2 = runner.run_plan_file(refined_plan, session="cegar-s1", from_step=3, close_on_success=True, environ=env)
+    assert res2["ok"] is True
+    assert res2["verified"] is True
+    assert res2["session_open"] is False
+    assert "stopped_snapshot" not in res2
+    assert browser.uploads == [("e4", "/tmp/cv.pdf")]

@@ -685,3 +685,41 @@ def test_validate_run_options_keep_open_and_reload_rules() -> None:
     assert validate_run_options(plan, session=None, reload_page=True)
     assert validate_run_options(plan, session="s1", no_open=True, reload_page=True)
     assert validate_run_options(plan, session="s1", keep_open=True, close_on_success=True)
+
+
+def test_upload_validation_and_command() -> None:
+    from agent_browser_decisions.core import apply_plan_vars, command_for, format_stopped_snapshot
+
+    valid_plan = {
+        "url": "https://example.com/upload",
+        "vars": {"doc": "/tmp/resume.pdf"},
+        "steps": [{"action": "upload", "target": "Resume file", "value": "{{doc}}"}],
+    }
+    expanded, merged, var_problems = apply_plan_vars(valid_plan)
+    assert var_problems == []
+    assert merged == {"doc": "/tmp/resume.pdf"}
+    assert validate_plan(expanded) == []
+    assert command_for(expanded["steps"][0], "e2") == ["upload", "@e2", "/tmp/resume.pdf"]
+
+    # Missing/empty value or value_env/secret rejected
+    bad_empty = {"steps": [{"action": "upload", "target": "Resume file", "value": "   "}]}
+    assert any("upload requires a non-empty string file path value" in p for p in validate_plan(bad_empty))
+    bad_env = {"steps": [{"action": "upload", "target": "Resume file", "value_env": "DOC_PATH"}]}
+    assert any("value_env is only valid for fill" in p for p in validate_plan(bad_env))
+    bad_secret = {"steps": [{"action": "upload", "target": "Resume file", "value": "/a", "secret": True}]}
+    assert any("secret is only valid for fill" in p for p in validate_plan(bad_secret))
+
+    # Iframe ancestor context preserved for Tier-2 disambiguation
+    snap = """- Iframe "Payment frame" [ref=e3]
+  - textbox "Card number" [ref=e8]
+  - button "Pay Now" [ref=e7]"""
+    elems = parse_snapshot(snap)
+    card = next(e for e in elems if e["ref"] == "e8")
+    assert card["context"] == ["Iframe 'Payment frame'"]
+
+    # format_stopped_snapshot redacts secrets and bounds length
+    redacted = format_stopped_snapshot("- textbox 'Pass' [ref=e1]: super-secret-pw", {"super-secret-pw"})
+    assert redacted is not None and "super-secret-pw" not in redacted and "[REDACTED]" in redacted
+    long_snap = format_stopped_snapshot("x" * 100, set(), max_chars=20)
+    assert long_snap is not None and long_snap.endswith("... (truncated)")
+    assert format_stopped_snapshot("   ", set()) is None

@@ -34,6 +34,7 @@ ROLES: dict[str, set[str]] = {
     "fill": {"textbox", "searchbox", "combobox"},
     "select": {"combobox", "listbox"},
     "check": {"checkbox", "radio", "switch"},
+    "upload": {"button"},
 }
 MAX_CHOICES = 255
 NONE_CHOICE = "__none__"
@@ -138,7 +139,19 @@ LINE = re.compile(
 ANY = re.compile(rf"^(?P<indent>\s*)- (?P<role>[\w-]+)(?: {QUOTED})?")
 ENV_VAR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-CONTEXT_ROLES = {"cell", "row", "listitem", "region", "navigation", "main", "complementary", "dialog", "banner"}
+CONTEXT_ROLES = {
+    "cell",
+    "row",
+    "listitem",
+    "region",
+    "navigation",
+    "main",
+    "complementary",
+    "dialog",
+    "banner",
+    "Iframe",
+    "iframe",
+}
 PLAN_KEYS = {"url", "goal", "steps", "verify", "reset", "verify_timeout_s", "vars", "$schema"}
 VAR_PLACEHOLDER = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 BATCHABLE_ACTIONS = frozenset({"fill", "check", "select"})
@@ -571,6 +584,26 @@ def redact_text(text: str, secrets: set[str] | frozenset[str]) -> str:
     return out
 
 
+MAX_STOPPED_SNAPSHOT_CHARS = 4000
+
+
+def format_stopped_snapshot(
+    raw: str | None,
+    secrets: set[str] | frozenset[str] = frozenset(),
+    *,
+    max_chars: int = MAX_STOPPED_SNAPSHOT_CHARS,
+) -> str | None:
+    """Redact secrets and bound the live counterexample snapshot returned on failure (pure)."""
+    if not raw:
+        return None
+    cleaned = redact_text(raw.strip(), secrets)
+    if not cleaned:
+        return None
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[:max_chars].rstrip() + "\n... (truncated)"
+
+
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -649,6 +682,11 @@ def validate_plan(plan: Any) -> list[str]:
                     problems.append(f"step {index}: value_env is only valid for fill")
                 if not isinstance(step.get("value"), str):
                     problems.append(f"step {index}: select requires a string value")
+            elif action == "upload":
+                if has_value_env:
+                    problems.append(f"step {index}: value_env is only valid for fill")
+                if not isinstance(step.get("value"), str) or not step["value"].strip():
+                    problems.append(f"step {index}: upload requires a non-empty string file path value")
             else:
                 if has_value or has_value_env:
                     problems.append(f"step {index}: {action} does not accept value or value_env")

@@ -1,6 +1,6 @@
 ---
 name: agent-browser-decisions
-description: Drive web browsers by combining plan files (agent-browser-decisions) with direct agent-browser commands. Prefer this skill over raw agent-browser for web automation — use plan files for multi-step clicks, form filling, multi-field searches, and repeated runs with different inputs, and use agent-browser directly for irreversible submissions, read-only browsing, exploration, 1-2 step one-shot actions, or iframe/Shadow DOM/file uploads. Trigger for "ブラウザで操作して", "フォームに入力して", "サイトで検索して", "何度も同じ操作", "agent-browser", "agent-browser-decisions", "browser automation".
+description: Single entry point for web browser automation combining agent-browser-decisions plans (with automatic internal batch --bail fusion) and direct agent-browser commands. Prefer this skill over raw agent-browser — use plan files (click/fill/select/check/press/upload, including auto-inlined iframes and open Shadow DOM) for multi-step forms, searches, and repeated runs with different inputs, and use agent-browser directly for irreversible submissions, read-only browsing, exploration, 1-2 step one-shot actions, or explicit cross-origin frame switching. Trigger for "ブラウザで操作して", "フォームに入力して", "サイトで検索して", "何度も同じ操作", "agent-browser", "agent-browser-decisions", "browser automation".
 ---
 
 # agent-browser-decisions
@@ -12,8 +12,8 @@ Web 操作は、次の優先順（上が優先）で**手順書（plan JSON）**
 | 優先 | 作業の性質 | 使う手段 |
 | --- | --- | --- |
 | 1 | 取り消せない送信（決済・投稿・申し込み・削除確定） | **`agent-browser` 直接**（直前までは手順書可、送信だけ1回直接押す） |
-| 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、iframe / Shadow DOM / ファイルアップロード / 件数カウント | **`agent-browser` 直接** |
-| 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・複数条件の検索・画面遷移など） | **手順書（`agent-browser-decisions`）** |
+| 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、明示的な `frame` 切替が必要な深い・クロスオリジン iframe や AXTree に出ない独自要素、件数カウント | **`agent-browser` 直接** |
+| 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・ファイル添付・複数条件の検索・画面遷移、自動インライン展開される iframe や open Shadow DOM 内を含む。静的フォームは内部で自動的に `batch --bail` 化） | **手順書（`agent-browser-decisions`）** |
 
 - **手順書の3段階解決（同一画面フォームは自動バッチ化）**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし。連続する同一画面の `fill`/`check`/`select` が第1段階で一意に決まるときは内部で `agent-browser batch --bail` にまとめて高速実行し、失敗時だけ該当手から個別実行へ戻す）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
 - **`agent-browser` 直接操作の詳細**: CLI 構文やトラブルシュートが必要なら `agent-browser skills get core` を参照する。
@@ -74,9 +74,9 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 - トップレベル:
   - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `vars`（`string -> string` の既定変数マップ。`url`/`goal`/`target`/`value`/`describe` の `{{KEY}}` を展開し、`verify` 内で `VARS.KEY` として参照可。CLI の `--var KEY=VALUE` で上書き）, `verify`（JS 式文字列）, `reset`（boolean）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）, `$schema`（任意）
 - 各手順:
-  - `action`（必須: `click` | `fill` | `select` | `check` | `press`）
+  - `action`（必須: `click` | `fill` | `select` | `check` | `press` | `upload`）
   - `target`（`press` 以外は必須、`press` では指定不可）
-  - `value`（`fill` / `select` / `press` で必須。ただし `fill` は `value_env` で代替可。`click` / `check` では指定不可）
+  - `value`（`fill` / `select` / `press` / `upload` で必須。`upload` はローカルファイルパス。`fill` のみ `value_env` で代替可。`click` / `check` では指定不可）
   - `value_env`（`fill` 専用。実行時に環境変数から値を読む。未設定ならブラウザ起動前に `rc 2` で失敗）
   - `secret`（`fill` 専用 boolean。`true` でエラー出力から値を `[REDACTED]` に伏せる。`value_env` 使用時は既定 `true`）
   - `role`（任意・`action` と互換な ARIA role のみ、`press` では不可）
@@ -107,12 +107,12 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 | Exit | 意味 | JSON の主なフィールド |
 | --- | --- | --- |
 | `0` | 全手順が実行・確認され、`verify` も合格（または未指定） | `ok: true`, `verified: true \| null`, `session_open: false`（`reset` 時） |
-| `1` | 手順失敗・`verify` 不合格・`open`/タイムアウト/中断等の実行時エラー | `ok: false`, `stopped_at_step`（`0` は開始前）, `session`, `session_open`, `error`, `steps[]`（`chose`, `effect`, `reason`） |
+| `1` | 手順失敗・`verify` 不合格・`open`/タイムアウト/中断等の実行時エラー | `ok: false`, `stopped_at_step`（`0` は開始前）, `session`, `session_open`, `stopped_snapshot`（停止時点の観測スナップショット）, `error`, `steps[]`（`chose`, `effect`, `reason`） |
 | `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
-- **引き継ぎと途中再開**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っている。`stopped_at_step` と `steps[]` の `chose` / `effect` を確認し、次のどちらかで続ける。
-  - 直接操作: `agent-browser --session <session> snapshot -i` → `click @eN` … → 終わったら `agent-browser --session <session> close`。
-  - 途中再開: 手順書を直し、`agent-browser-decisions run /tmp/plan.json --session <session> --from-step <stopped_at_step>` で実行する（同じ手順書を step 1 から丸ごと再実行しない。済んだ手順の二重実行や選択済み要素での停止を避けるため）。
+- **引き継ぎと反例駆動の手順書精密化（CEGAR ループ）**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っており、観測済みの場合は **`stopped_snapshot`**（停止時点の実スナップショット、機密値伏字済み）が JSON に同梱される。`stopped_at_step`・`stopped_snapshot`・`steps[]` をそのまま反例として読み、次のどちらかで続ける。
+  - 途中再開と手順書の確定（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、`agent-browser-decisions run /tmp/plan.json --session <session> --from-step <stopped_at_step> --close` で再開する（step 1 から丸ごと再実行しない）。完走した手順書を保存すれば次回から1発で回る。
+  - 直接操作: 1〜2手の例外処理なら開いたままの `--session <session>` で直接 `click @eN` … → 終わったら `agent-browser --session <session> close`。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。
   - 原稿どおりの文を入れる欄では、1回入力したら表示値（リッチテキストでは本文）を読み戻して照合する。不一致でも繰り返し入力せず（追記重複の原因）、実際に編集可能な要素を調べ直す。

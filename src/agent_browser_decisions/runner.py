@@ -27,6 +27,7 @@ from agent_browser_decisions.core import (
     document,
     evaluate_verify_output,
     extract_batch_tail,
+    format_stopped_snapshot,
     hash_route,
     match_label,
     redact_text,
@@ -119,11 +120,14 @@ class PlanRunner:
         exclude: set[str],
         *,
         initial_page: dict[str, Any] | None = None,
+        last_raw_out: list[str] | None = None,
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
         deadline = time.perf_counter() + self.settle_s
         previous: str | None = initial_page["raw"] if initial_page is not None else None
         while True:
             page = browser.observe()
+            if last_raw_out is not None and isinstance(page.get("raw"), str):
+                last_raw_out[:] = [page["raw"]]
             # Two consecutive identical snapshots mean the page has settled and refs are not shifting.
             stable = previous is not None and page["raw"] == previous
             previous = page["raw"]
@@ -253,6 +257,7 @@ class PlanRunner:
         *,
         verify_expr: str | None = None,
         initial_page: dict[str, Any] | None = None,
+        last_raw_out: list[str] | None = None,
     ) -> tuple[int, tuple[bool, Any] | None, str | None]:
         if len(remaining_steps) < 2 or not hasattr(browser, "batch"):
             return 0, None, None
@@ -266,6 +271,8 @@ class PlanRunner:
         started = time.perf_counter()
         metrics.reset()
         page = self._wait_stable_page(browser, initial_page=initial_page)
+        if last_raw_out is not None and isinstance(page.get("raw"), str):
+            last_raw_out[:] = [page["raw"]]
         selected = select_tier1_batch(remaining_steps, page["elements"])
         if len(selected) < 2:
             return 0, None, None
@@ -331,6 +338,7 @@ class PlanRunner:
         log: list[dict[str, Any]],
         *,
         initial_page: dict[str, Any] | None = None,
+        last_raw_out: list[str] | None = None,
     ) -> tuple[bool, dict[str, Any] | None]:
         started = time.perf_counter()
         metrics.reset()
@@ -341,6 +349,8 @@ class PlanRunner:
 
         if step["action"] == "press":
             page = initial_page if initial_page is not None else browser.observe()
+            if last_raw_out is not None and isinstance(page.get("raw"), str):
+                last_raw_out[:] = [page["raw"]]
             browser.call("press", step["value"], category="act")
             observed: list[dict[str, Any]] = []
             changed = poll(self._changed_since(browser, page, observed), self.effect_wait_s, self.poll_s)
@@ -366,7 +376,7 @@ class PlanRunner:
         while True:
             step_mode = "decide" if step.get("decide") else mode
             element, tier, info, page = self._resolve(
-                browser, decisions, step, goal, step_mode, excluded, initial_page=seed_page
+                browser, decisions, step, goal, step_mode, excluded, initial_page=seed_page, last_raw_out=last_raw_out
             )
             seed_page = None
             tiers.append(tier)
@@ -549,6 +559,7 @@ class PlanRunner:
                     pass
 
         log: list[dict[str, Any]] = []
+        last_observed_raw: list[str] = []
         completed = False
         error: str | None = None
         verified: bool | None = None
@@ -597,6 +608,7 @@ class PlanRunner:
                             log,
                             verify_expr=verify_expr,
                             initial_page=carried_page,
+                            last_raw_out=last_observed_raw,
                         )
                         if batched > 0:
                             carried_page = None
@@ -619,6 +631,7 @@ class PlanRunner:
                             secrets,
                             log,
                             initial_page=carried_page,
+                            last_raw_out=last_observed_raw,
                         )
                         if not step_ok:
                             completed = False
@@ -689,7 +702,7 @@ class PlanRunner:
                 profile = None
 
         stopped = next((e["step"] for e in log if not e.get("ok")), None)
-        return {
+        result: dict[str, Any] = {
             "ok": ok,
             "session": session or env_map.get("AGENT_BROWSER_SESSION", "default"),
             "session_open": session_open,
@@ -720,6 +733,11 @@ class PlanRunner:
                 for e in log
             ],
         }
+        if not ok and session_open and last_observed_raw:
+            stopped_snap = format_stopped_snapshot(last_observed_raw[-1], secrets)
+            if stopped_snap:
+                result["stopped_snapshot"] = stopped_snap
+        return result
 
 
 def run_plan_file(

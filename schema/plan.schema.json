@@ -418,6 +418,75 @@
               "type": "boolean"
             }
           }
+        },
+        {
+          "title": "upload",
+          "required": [
+            "action",
+            "target",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "upload"
+            },
+            "role": {
+              "enum": [
+                "button"
+              ]
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1
+            },
+            "describe": {
+              "type": "string"
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "match": {
+              "const": "regex"
+            },
+            "decide": {
+              "type": "boolean"
+            },
+            "once": {
+              "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "decide": {
+                "const": true
+              }
+            },
+            "required": [
+              "decide"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "nth"
+                  ]
+                },
+                {
+                  "required": [
+                    "match"
+                  ]
+                }
+              ]
+            }
+          }
         }
       ]
     }
