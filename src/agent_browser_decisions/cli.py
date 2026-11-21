@@ -14,7 +14,9 @@ from agent_browser_decisions.browser import detect_agent_browser, quiet_profile
 from agent_browser_decisions.core import (
     PROVIDER_ORDER,
     PROVIDERS,
+    apply_plan_vars,
     parse_dotenv,
+    parse_var_args,
     resolve_decision_config,
     validate_plan,
 )
@@ -135,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
 
     val = sub.add_parser("validate", help="check a plan file without touching the browser")
     val.add_argument("plan", help="plan JSON file, or - for stdin")
+    val.add_argument("--var", action="append", default=[], metavar="KEY=VALUE", help="override plan variable")
 
     run = sub.add_parser("run", help="run a plan file")
     run.add_argument("plan", help="plan JSON file, or - for stdin")
@@ -150,6 +153,23 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=1,
         help="resume from 1-based step N in --session (skips url open and reset)",
+    )
+    run.add_argument(
+        "--var",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="set/override a plan variable ({{KEY}} in steps/url, VARS.KEY in verify); repeatable",
+    )
+    run.add_argument(
+        "--no-open",
+        action="store_true",
+        help="reuse an already-open --session without re-navigating to url (ignores reset=true)",
+    )
+    run.add_argument(
+        "--close",
+        action="store_true",
+        help="close --session automatically on success (leaves it open on failure for Tier 3 handoff)",
     )
     run.add_argument("--env-file", help="optional .env file to load missing environment variables from")
     _add_decision_flags(run)
@@ -196,8 +216,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "problems": [f"cannot read plan: {error}"]}, ensure_ascii=False, indent=2))
         return 2
 
+    cli_vars, var_arg_problems = parse_var_args(getattr(args, "var", None))
+    if var_arg_problems:
+        print(json.dumps({"ok": False, "problems": var_arg_problems}, ensure_ascii=False, indent=2))
+        return 2
+
     if args.command == "validate":
-        problems = validate_plan(plan)
+        effective = plan
+        var_problems: list[str] = []
+        if isinstance(plan, dict) and (plan.get("vars") is not None or cli_vars):
+            effective, _, var_problems = apply_plan_vars(plan, cli_vars)
+        problems = validate_plan(effective) + var_problems
         print(json.dumps({"ok": not problems, "problems": problems}, ensure_ascii=False, indent=2))
         return 0 if not problems else 2
 
@@ -207,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         mode=args.mode,
         session=args.session,
         from_step=args.from_step,
+        vars=cli_vars or None,
+        no_open=args.no_open,
+        close_on_success=args.close,
         browser_timeout_s=args.timeout,
         api_timeout_s=args.api_timeout,
         provider=args.provider,

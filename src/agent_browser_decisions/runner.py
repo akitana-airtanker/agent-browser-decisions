@@ -18,6 +18,8 @@ import httpx
 from agent_browser_decisions.browser import AgentBrowser, quiet_profile
 from agent_browser_decisions.core import (
     DEFAULT_PROVIDER,
+    apply_plan_vars,
+    build_batch_commands,
     chosen_ref,
     command_for,
     compatible,
@@ -29,8 +31,11 @@ from agent_browser_decisions.core import (
     redact_text,
     resolve_step_values,
     same_field_value,
+    select_tier1_batch,
     validate_plan,
     validate_run_options,
+    verify_batch_results,
+    wrap_verify_with_vars,
 )
 from agent_browser_decisions.decisions import DecisionsClient, DecisionsError, MissingKey
 
@@ -209,6 +214,68 @@ class PlanRunner:
             return "wrong_target"
         return "ok" if poll(self._changed_since(browser, page), self.effect_wait_s, self.poll_s) else "no_effect"
 
+    def _wait_stable_page(self, browser: AgentBrowser) -> dict[str, Any]:
+        deadline = time.perf_counter() + self.settle_s
+        previous: str | None = None
+        while True:
+            page = browser.observe()
+            if (previous is not None and page["raw"] == previous) or time.perf_counter() >= deadline:
+                return page
+            previous = page["raw"]
+            time.sleep(self.poll_s)
+
+    def _try_tier1_batch(
+        self,
+        browser: AgentBrowser,
+        metrics: Metrics,
+        start_index: int,
+        remaining_steps: list[dict[str, Any]],
+        log: list[dict[str, Any]],
+    ) -> int:
+        if len(remaining_steps) < 2 or not hasattr(browser, "batch"):
+            return 0
+        if (
+            remaining_steps[0].get("action") not in ("fill", "check", "select")
+            or remaining_steps[1].get("action") not in ("fill", "check", "select")
+            or remaining_steps[0].get("decide") is True
+            or remaining_steps[1].get("decide") is True
+        ):
+            return 0
+        started = time.perf_counter()
+        metrics.reset()
+        page = self._wait_stable_page(browser)
+        selected = select_tier1_batch(remaining_steps, page["elements"])
+        if len(selected) < 2:
+            return 0
+        commands, check_map = build_batch_commands(selected)
+        try:
+            rows = browser.batch(commands, bail=True, category="act")
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            return 0
+        verified_count = verify_batch_results(selected, rows, check_map)
+        if verified_count <= 0:
+            return 0
+        total_ms = round((time.perf_counter() - started) * 1000)
+        per_step_ms = max(1, round(total_ms / verified_count))
+        for i in range(verified_count):
+            step, el = selected[i]
+            log.append(
+                {
+                    "step": start_index + i,
+                    "tier": 1,
+                    "tiers": [1],
+                    "target": step["target"],
+                    "url": page["url"],
+                    "ok": True,
+                    "chose": el["name"][:80],
+                    "effect": "ok",
+                    "batched": True,
+                    "ms": per_step_ms,
+                    "metrics": metrics.summary() if i == 0 else {},
+                }
+            )
+        return verified_count
+
     def _run_step(
         self,
         browser: AgentBrowser,
@@ -337,13 +404,30 @@ class PlanRunner:
         mode: str = "label",
         session: str | None = None,
         from_step: int = 1,
+        vars: Mapping[str, str] | None = None,
+        no_open: bool = False,
+        close_on_success: bool = False,
         environ: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Validate, resolve env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
+        """Validate, resolve vars/env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
         env_map = os.environ if environ is None else environ
         effective_provider = self.provider if self.provider is not None else env_map.get("DECISION_PROVIDER")
-        problems = validate_plan(plan) + validate_run_options(
-            plan, session=session, from_step=from_step, provider=effective_provider
+        merged_vars: dict[str, str] = {}
+        var_problems: list[str] = []
+        effective_plan = plan
+        if isinstance(plan, dict) and (plan.get("vars") is not None or vars):
+            effective_plan, merged_vars, var_problems = apply_plan_vars(plan, vars)
+        problems = (
+            validate_plan(effective_plan)
+            + var_problems
+            + validate_run_options(
+                effective_plan,
+                session=session,
+                from_step=from_step,
+                provider=effective_provider,
+                no_open=no_open,
+                close_on_success=close_on_success,
+            )
         )
         if problems:
             return {
@@ -353,6 +437,7 @@ class PlanRunner:
                 "verified": None,
                 "problems": problems,
             }
+        plan = effective_plan
         resolved_steps, secrets, env_problems = resolve_step_values(
             plan["steps"][from_step - 1 :],
             env_map,
@@ -417,7 +502,7 @@ class PlanRunner:
 
         try:
             with decisions:
-                if plan.get("url") and from_step == 1:
+                if plan.get("url") and from_step == 1 and not no_open:
                     try:
                         browser.open(plan["url"], profile=profile)
                         session_opened = True
@@ -440,8 +525,15 @@ class PlanRunner:
                         }
 
                 completed = True
-                for offset, step in enumerate(resolved_steps):
+                offset = 0
+                while offset < len(resolved_steps):
                     index = from_step + offset
+                    if mode == "label":
+                        batched = self._try_tier1_batch(browser, metrics, index, resolved_steps[offset:], log)
+                        if batched > 0:
+                            offset += batched
+                            continue
+                    step = resolved_steps[offset]
                     try:
                         if not self._run_step(
                             browser, decisions, metrics, index, step, plan.get("goal", ""), mode, secrets, log
@@ -467,10 +559,12 @@ class PlanRunner:
                         )
                         completed = False
                         break
+                    offset += 1
 
                 if completed and plan.get("verify"):
+                    verify_expr = wrap_verify_with_vars(plan["verify"], merged_vars)
                     verified, verify_value = self._verify_page(
-                        browser, plan["verify"], plan.get("verify_timeout_s", 10), secrets
+                        browser, verify_expr, plan.get("verify_timeout_s", 10), secrets
                     )
         except KeyboardInterrupt:
             interrupted = True
@@ -491,7 +585,7 @@ class PlanRunner:
                     url = ""
 
             # On normal success OR interrupt, close owned sessions and delete temp profiles cleanly.
-            if (ok or interrupted) and owns_session and session_opened:
+            if (ok or interrupted) and (owns_session or close_on_success) and session_opened:
                 with contextlib.suppress(RuntimeError, subprocess.TimeoutExpired, OSError):
                     browser.close()
                 closed = True
@@ -524,6 +618,7 @@ class PlanRunner:
                         "confidence",
                         "reason",
                         "error",
+                        "batched",
                         "ms",
                     )
                     if e.get(k) is not None or k in ("step", "tier", "target", "chose", "effect", "ms")
@@ -539,6 +634,9 @@ def run_plan_file(
     session: str | None = None,
     from_step: int = 1,
     *,
+    vars: Mapping[str, str] | None = None,
+    no_open: bool = False,
+    close_on_success: bool = False,
     browser_timeout_s: float = 60.0,
     api_timeout_s: float = 30.0,
     provider: str | None = None,
@@ -558,5 +656,8 @@ def run_plan_file(
         mode=mode,
         session=session,
         from_step=from_step,
+        vars=vars,
+        no_open=no_open,
+        close_on_success=close_on_success,
         environ=environ,
     )

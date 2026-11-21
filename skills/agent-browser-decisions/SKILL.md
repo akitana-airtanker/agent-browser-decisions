@@ -15,7 +15,7 @@ Web 操作は、次の優先順（上が優先）で**手順書（plan JSON）**
 | 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、iframe / Shadow DOM / ファイルアップロード / 件数カウント | **`agent-browser` 直接** |
 | 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・複数条件の検索・画面遷移など） | **手順書（`agent-browser-decisions`）** |
 
-- **手順書の3段階解決**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
+- **手順書の3段階解決（同一画面フォームは自動バッチ化）**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし。連続する同一画面の `fill`/`check`/`select` が第1段階で一意に決まるときは内部で `agent-browser batch --bail` にまとめて高速実行し、失敗時だけ該当手から個別実行へ戻す）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
 - **`agent-browser` 直接操作の詳細**: CLI 構文やトラブルシュートが必要なら `agent-browser skills get core` を参照する。
 
 ## Setup & Run
@@ -33,42 +33,46 @@ git clone https://github.com/akitana-airtanker/agent-browser-decisions.git "$ABD
 uv run --project "$ABD" agent-browser-decisions doctor
 ```
 
-事前に画面のスナップショット（`- button "Login" [ref=e3]` の引用符内が `target`、`button` が `role`）を確かめてから手順書 JSON を書き、検証・実行する（`agent-browser-decisions` が `PATH` にない場合は `uv run --project "$ABD" agent-browser-decisions` に読み替える）:
+**高速実行の基本手順（初回は確認用セッションを閉じずに再利用し、2回目以降は `--var` で1行実行する）**:
+- `doctor` はエラー時だけ呼べばよい（正常時は不要）。`run` はブラウザ操作前に自動でスキーマ検証するため、通常実行前に別コマンドで `validate` を呼ぶ必要はない。
+- 事前確認で開いたセッション `$S` は**閉じずに残し**、`--session "$S" --no-open --close` でそのまま `run` する（Chrome の再起動とページ再読込を省き、成功時は自動で閉じ、失敗時だけ開いたまま残る）。
+- **フォームのすべての入力値・選択対象（テキスト欄だけでなくラジオ・チェックボックスのラベルも含む）をトップレベル `vars` と `{{KEY}}` に出し、`verify` も `VARS.*` で汎用的に照合**して `/tmp/plan.json` へ保存する（これにより2回目にどの項目が変わっても JSON を書き直さず `--var KEY=VALUE` の1行だけで再実行できる）。
+- `--session "$S" --no-open --close` の結果で `ok: true`・`verified: true`・`session_open: false` が返っていれば、全項目の反映確認とセッション終了まで完了済み。追加の `snapshot`・`eval`・`session list` は不要。
 
 ```bash
-URL="https://www.saucedemo.com/"
+URL="https://httpbin.org/forms/post"
+S="abd-$$"
 
-# 事前確認: 実際のラベルと役割（role）を読み、確認用セッションは閉じる
-agent-browser --session inspect open "$URL" && agent-browser --session inspect snapshot -i
-agent-browser --session inspect close
+# 1. 事前確認: ラベルと role を読む（セッション $S は閉じずにそのまま残す）
+agent-browser --session "$S" open "$URL" && agent-browser --session "$S" snapshot -i
 
+# 2. 手順書を書き、開いている $S 上で --no-open --close で即実行（成功時のみ自動クローズ）
 cat > /tmp/plan.json <<'EOF'
 {
-  "url": "https://www.saucedemo.com/",
-  "goal": "Log in and open the cart.",
+  "url": "https://httpbin.org/forms/post",
   "reset": true,
+  "vars": {"name": "Taro Yamada", "size": "Medium"},
   "steps": [
-    {"action": "fill", "target": "Username", "value_env": "SAUCEDEMO_USER", "secret": false},
-    {"action": "fill", "target": "Password", "value_env": "SAUCEDEMO_PASSWORD"},
-    {"action": "click", "target": "Login", "role": "button", "expect": "navigation", "once": true},
-    {"action": "click", "target": "Cart", "describe": "the shopping cart icon in the header"}
+    {"action": "fill", "target": "Customer name:", "value": "{{name}}"},
+    {"action": "check", "target": "{{size}}", "role": "radio"}
   ],
-  "verify": "location.pathname === '/cart.html'"
+  "verify": "document.querySelector('input[name=custname]').value === VARS.name"
 }
 EOF
+agent-browser-decisions run /tmp/plan.json --session "$S" --no-open --close
 
-agent-browser-decisions validate /tmp/plan.json
-SAUCEDEMO_USER=standard_user SAUCEDEMO_PASSWORD=secret_sauce agent-browser-decisions run /tmp/plan.json
+# 3. 2回目以降（値だけ変更）: JSON を書き直さず --var だけで1コマンド実行（reset: true で自動起動・終了）
+agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="Large"
 ```
 
-途中から既存セッションで再開するときは `run /tmp/plan.json --session <session> --from-step <N>` を使う。タイムアウト調整は `--timeout <秒>`（ブラウザ）/ `--api-timeout <秒>`（API）。
+機密値（ログインパスワード等）は `vars` ではなく `value_env`（例: `{"action": "fill", "target": "Password", "value_env": "APP_PASSWORD"}`）で環境変数から渡す。途中から既存セッションで再開するときは `run /tmp/plan.json --session <session> --from-step <N>` を使う。タイムアウト調整は `--timeout <秒>`（ブラウザ）/ `--api-timeout <秒>`（API）。
 
 ## Plan schema
 
 `validate` は未定義キー・型誤り・不正な組み合わせを実行前に `rc 2` で弾く（JSON Schema は `schema/plan.schema.json`）。
 
 - トップレベル:
-  - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `verify`（JS 式文字列）, `reset`（boolean）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）, `$schema`（任意）
+  - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `vars`（`string -> string` の既定変数マップ。`url`/`goal`/`target`/`value`/`describe` の `{{KEY}}` を展開し、`verify` 内で `VARS.KEY` として参照可。CLI の `--var KEY=VALUE` で上書き）, `verify`（JS 式文字列）, `reset`（boolean）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）, `$schema`（任意）
 - 各手順:
   - `action`（必須: `click` | `fill` | `select` | `check` | `press`）
   - `target`（`press` 以外は必須、`press` では指定不可）
@@ -96,7 +100,7 @@ SAUCEDEMO_USER=standard_user SAUCEDEMO_PASSWORD=secret_sauce agent-browser-decis
   - 支払い・投稿・申し込み・削除確定など取り消せない送信は手順書に入れず、直前で止めて直接操作で1回だけ押す。それ以外でも応答が遅く二重実行を避けたい手順には `"once": true` を付ける。
   - `select` の反映確認は未検査（常に `ok`）なので、選択結果が重要なら `verify` で `.value` や表示テキストを検査する。
 - **`verify` の書き方**: `verify` には JSON 化できる JS 式を書く。真になるプリミティブ、`{}`/`[]`、または `{"passed": true}` が合格。`undefined`・`NaN`・構文エラー・非ゼロ終了・`{"passed": false}` は不合格。`verify` を省くと `verified: null` のまま全手順完了で `ok: true` になるため、最終状態を保証したいときは必ず書く。入力欄は `innerText` ではなく `.value` で調べる。
-- **`reset` と `--session`**: `"reset": true` は `url` 必須で、パスワード管理を切った新しい独立セッションを起動し、成功時・中断時に自動で閉じる（`--session` とは併用不可）。ログイン済みの既存セッションを引き継ぐときは `"reset": false`（または省略）＋ `--session <名前>` を渡す。`url` があると既存セッションでも開き直し、開いていたダイアログを閉じるため、今の画面から続けるときは `url` を省く。
+- **`reset` と `--session` / `--no-open` / `--close`**: `"reset": true` は `url` 必須で、単独実行時にパスワード管理を切った新しい独立セッションを起動し、成功時・中断時に自動で閉じる。事前確認で開いた既存セッションを再利用するときは `--session <名前> --no-open --close` を渡す（`reset: true` のままでも再遷移せず、成功時だけ自動クローズし失敗時は開いたまま残す）。
 
 ## Result, exit codes & direct takeover
 

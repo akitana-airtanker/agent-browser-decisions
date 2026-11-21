@@ -861,3 +861,129 @@ def test_cli_doctor_and_run_multi_provider_flags_and_invalid_provider(
     bad_out = json.loads(capsys.readouterr().out)
     assert rc_bad == 2
     assert any("unknown provider" in p for p in bad_out["problems"])
+
+
+class BatchFakeBrowser:
+    """Fake browser supporting `batch()` to test Tier-1 batching, fallback, vars, and --no-open/--close."""
+
+    def __init__(self, snapshot: str, *, fail_check_at: int | None = None, verify_result: str = "true") -> None:
+        self.snapshot = snapshot
+        self.fail_check_at = fail_check_at
+        self.verify_result = verify_result
+        self.opened: list[str] = []
+        self.batched_calls: list[list[list[str]]] = []
+        self.single_calls: list[tuple[str, ...]] = []
+        self.verify_exprs: list[str] = []
+        self.closed = False
+
+    def open(self, url: str, *, profile: str | None = None) -> None:
+        self.opened.append(url)
+
+    def observe(self, category: str = "observe") -> dict[str, Any]:
+        from agent_browser_decisions.core import parse_snapshot
+
+        return {"url": "https://example.com/form", "raw": self.snapshot, "elements": parse_snapshot(self.snapshot)}
+
+    def batch(self, commands: list[list[str]], *, bail: bool = True, category: str = "act") -> list[dict[str, Any]]:
+        self.batched_calls.append(commands)
+        rows: list[dict[str, Any]] = []
+        values: dict[str, str] = {}
+        checked: set[str] = set()
+        for idx, cmd in enumerate(commands):
+            if cmd[0] == "fill":
+                values[cmd[1]] = cmd[2]
+                rows.append({"index": idx, "success": True, "result": {"filled": cmd[1]}})
+            elif cmd[0] == "check":
+                checked.add(cmd[1])
+                rows.append({"index": idx, "success": True, "result": {"checked": cmd[1]}})
+            elif cmd[0] == "get" and cmd[1] == "value":
+                val = "CORRUPTED" if self.fail_check_at == idx else values.get(cmd[2], "")
+                rows.append({"index": idx, "success": True, "result": {"value": val}})
+            elif cmd[0] == "is" and cmd[1] == "checked":
+                rows.append({"index": idx, "success": True, "result": {"checked": cmd[2] in checked}})
+        return rows
+
+    def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
+        self.single_calls.append(args)
+        if args[0] == "eval":
+            self.verify_exprs.append(args[1])
+            return self.verify_result
+        if args[0] == "get" and args[1] == "value":
+            return "Hanako"
+        if args[0] == "is" and args[1] == "checked":
+            return "true"
+        return "ok"
+
+    def current_url(self) -> str:
+        return "https://example.com/form"
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_tier1_batching_vars_and_no_open_close_invariants() -> None:
+    snap = '- textbox "Name" [ref=e1]\n- textbox "Email" [ref=e2]\n- checkbox "News" [ref=e3]\n'
+    fb = BatchFakeBrowser(snap)
+    runner = PlanRunner(
+        browser_factory=lambda *a, **kw: fb,  # type: ignore[arg-type]
+        settle_s=0.05,
+        poll_s=0.001,
+        verify_poll_s=0.001,
+    )
+    plan = {
+        "url": "https://example.com/form",
+        "reset": True,
+        "vars": {"name": "Taro", "email": "t@example.com"},
+        "steps": [
+            {"action": "fill", "target": "Name", "value": "{{name}}"},
+            {"action": "fill", "target": "Email", "value": "{{email}}"},
+            {"action": "check", "target": "News", "role": "checkbox"},
+        ],
+        "verify": "VARS.name === 'Hanako'",
+    }
+    res = runner.run_plan_file(
+        plan,
+        session="inspect-1",
+        no_open=True,
+        close_on_success=True,
+        vars={"name": "Hanako"},
+    )
+    assert res["ok"] is True
+    assert res["verified"] is True
+    assert res["session_open"] is False
+    assert fb.closed is True
+    assert fb.opened == []  # --no-open skipped redundant navigation
+    assert len(fb.batched_calls) == 1
+    assert all(s.get("batched") is True and s["tier"] == 1 for s in res["steps"])
+    assert fb.verify_exprs and '"name": "Hanako"' in fb.verify_exprs[0]
+
+
+def test_close_on_success_keeps_session_open_on_failure_and_falls_back_from_partial_batch() -> None:
+    snap = '- textbox "Name" [ref=e1]\n- textbox "Email" [ref=e2]\n'
+    # Batch has 2 fills (idx 0,1) + 2 get values (idx 2,3). Fail get value at idx 3 (step 2) and fail verify.
+    fb = BatchFakeBrowser(snap, fail_check_at=3, verify_result="false")
+    runner = PlanRunner(
+        browser_factory=lambda *a, **kw: fb,  # type: ignore[arg-type]
+        settle_s=0.05,
+        poll_s=0.001,
+        verify_poll_s=0.001,
+        effect_wait_s=0.02,
+    )
+    plan = {
+        "url": "https://example.com/form",
+        "reset": True,
+        "steps": [
+            {"action": "fill", "target": "Name", "value": "Hanako"},
+            {"action": "fill", "target": "Email", "value": "Hanako"},
+        ],
+        "verify": "false",
+        "verify_timeout_s": 0.01,
+    }
+    res = runner.run_plan_file(plan, session="inspect-2", no_open=True, close_on_success=True)
+    # Step 1 batched; step 2 fell back to _run_step; verify failed -> session stays OPEN.
+    assert res["ok"] is False
+    assert res["verified"] is False
+    assert res["session_open"] is True
+    assert fb.closed is False
+    assert res["steps"][0].get("batched") is True
+    assert res["steps"][1].get("batched") is None

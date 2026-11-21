@@ -139,7 +139,9 @@ ANY = re.compile(rf"^(?P<indent>\s*)- (?P<role>[\w-]+)(?: {QUOTED})?")
 ENV_VAR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 CONTEXT_ROLES = {"cell", "row", "listitem", "region", "navigation", "main", "complementary", "dialog", "banner"}
-PLAN_KEYS = {"url", "goal", "steps", "verify", "reset", "verify_timeout_s", "$schema"}
+PLAN_KEYS = {"url", "goal", "steps", "verify", "reset", "verify_timeout_s", "vars", "$schema"}
+VAR_PLACEHOLDER = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
+BATCHABLE_ACTIONS = frozenset({"fill", "check", "select"})
 STEP_KEYS = {
     "action",
     "target",
@@ -593,6 +595,16 @@ def validate_plan(plan: Any) -> list[str]:
         problems.append("reset=true requires a valid url")
     if "verify_timeout_s" in plan and not _is_finite_nonneg_number(plan["verify_timeout_s"]):
         problems.append("verify_timeout_s must be a finite non-negative number")
+    if "vars" in plan:
+        raw_vars = plan["vars"]
+        if not isinstance(raw_vars, dict):
+            problems.append("vars must be an object mapping variable names to strings")
+        else:
+            for key, val in raw_vars.items():
+                if not isinstance(key, str) or not ENV_VAR_NAME.match(key):
+                    problems.append(f"vars: invalid variable name {key!r}")
+                if not isinstance(val, str):
+                    problems.append(f"vars.{key}: value must be a string")
     steps = plan.get("steps")
     if not isinstance(steps, list) or not steps:
         return [*problems, "steps must be a non-empty list"]
@@ -672,6 +684,8 @@ def validate_run_options(
     session: str | None = None,
     from_step: int = 1,
     provider: str | None = None,
+    no_open: bool = False,
+    close_on_success: bool = False,
 ) -> list[str]:
     """Runtime option checks over an already schema-valid plan (pure)."""
     problems: list[str] = []
@@ -686,8 +700,12 @@ def validate_run_options(
         problems.append(f"from_step ({from_step}) exceeds step count ({len(plan['steps'])})")
     if _is_int(from_step) and from_step > 1 and not session:
         problems.append("--from-step > 1 requires --session")
-    if isinstance(plan, dict) and plan.get("reset") is True and session and from_step == 1:
-        problems.append("cannot combine reset=true with --session")
+    if no_open and not session:
+        problems.append("--no-open requires --session")
+    if close_on_success and not session:
+        problems.append("--close requires --session")
+    if isinstance(plan, dict) and plan.get("reset") is True and session and from_step == 1 and not no_open:
+        problems.append("cannot combine reset=true with --session (pass --no-open to reuse an open session)")
     return problems
 
 
@@ -716,3 +734,161 @@ def resolve_step_values(
             if step.get("secret") is True and isinstance(step.get("value"), str) and step["value"]:
                 secrets.add(step["value"])
     return resolved, secrets, problems
+
+
+def parse_var_args(raw_vars: list[str] | None) -> tuple[dict[str, str], list[str]]:
+    """Parse repeatable CLI `--var KEY=VALUE` flags -> (mapping, problems)."""
+    parsed: dict[str, str] = {}
+    problems: list[str] = []
+    for item in raw_vars or []:
+        if "=" not in item:
+            problems.append(f"--var must be KEY=VALUE, got {item!r}")
+            continue
+        key, value = item.split("=", 1)
+        if not ENV_VAR_NAME.match(key):
+            problems.append(f"--var: invalid variable name {key!r}")
+            continue
+        parsed[key] = value
+    return parsed, problems
+
+
+def _subst_vars(text: str, merged: Mapping[str, str], field: str, problems: list[str]) -> str:
+    def repl(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in merged:
+            problems.append(f"{field}: undefined plan variable {{{{{name}}}}}")
+            return match.group(0)
+        return merged[name]
+
+    return VAR_PLACEHOLDER.sub(repl, text)
+
+
+def apply_plan_vars(
+    plan: dict[str, Any],
+    overrides: Mapping[str, str] | None = None,
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+    """Merge plan defaults with CLI overrides and expand `{{var}}` placeholders (pure)."""
+    base_vars = plan.get("vars")
+    merged: dict[str, str] = {}
+    problems: list[str] = []
+    if isinstance(base_vars, dict):
+        for k, v in base_vars.items():
+            if isinstance(k, str) and isinstance(v, str):
+                merged[k] = v
+    if overrides:
+        for k, v in overrides.items():
+            if not isinstance(k, str) or not ENV_VAR_NAME.match(k):
+                problems.append(f"var: invalid variable name {k!r}")
+            elif not isinstance(v, str):
+                problems.append(f"var.{k}: value must be a string")
+            else:
+                merged[k] = v
+
+    expanded = dict(plan)
+    for top_field in ("url", "goal"):
+        if isinstance(expanded.get(top_field), str):
+            expanded[top_field] = _subst_vars(expanded[top_field], merged, top_field, problems)
+
+    if isinstance(plan.get("steps"), list):
+        new_steps: list[Any] = []
+        for idx, step in enumerate(plan["steps"], 1):
+            if not isinstance(step, dict):
+                new_steps.append(step)
+                continue
+            step_copy = dict(step)
+            for sfield in ("target", "value", "describe"):
+                if isinstance(step_copy.get(sfield), str):
+                    step_copy[sfield] = _subst_vars(step_copy[sfield], merged, f"step {idx}.{sfield}", problems)
+            new_steps.append(step_copy)
+        expanded["steps"] = new_steps
+
+    return expanded, merged, problems
+
+
+def wrap_verify_with_vars(expression: str, merged_vars: Mapping[str, str]) -> str:
+    """Expose merged plan vars as a read-only JS `VARS` object inside verify expressions (pure)."""
+    if not merged_vars:
+        return expression
+    encoded = json.dumps(dict(merged_vars), ensure_ascii=False)
+    return f"((VARS) => ({expression}))({encoded})"
+
+
+def select_tier1_batch(
+    steps: list[dict[str, Any]],
+    elements: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Select a leading run of >=2 same-screen pure form steps that uniquely match by Tier 1 label."""
+    selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    seen_refs: set[str] = set()
+    for step in steps:
+        action = step.get("action")
+        if action not in BATCHABLE_ACTIONS:
+            break
+        if step.get("decide") is True or step.get("expect") == "navigation":
+            break
+        element, status = match_label(step, elements)
+        if status != "hit" or element is None:
+            break
+        # Autocomplete combobox fills can open dynamic dropdowns; keep them on per-step stability path.
+        if action == "fill" and element.get("role") == "combobox":
+            break
+        ref = element["ref"]
+        if ref in seen_refs:
+            break
+        seen_refs.add(ref)
+        selected.append((step, element))
+    return selected if len(selected) >= 2 else []
+
+
+def build_batch_commands(
+    selected: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> tuple[list[list[str]], list[tuple[int, str, int]]]:
+    """Build `agent-browser batch` command list: actions followed by per-step effect checks (pure)."""
+    commands: list[list[str]] = [command_for(step, el["ref"]) for step, el in selected]
+    check_map: list[tuple[int, str, int]] = []
+    for offset, (step, el) in enumerate(selected):
+        action = step["action"]
+        ref_arg = f"@{el['ref']}"
+        if action == "fill":
+            check_map.append((offset, "fill", len(commands)))
+            commands.append(["get", "value", ref_arg])
+        elif action == "check":
+            check_map.append((offset, "check", len(commands)))
+            commands.append(["is", "checked", ref_arg])
+    return commands, check_map
+
+
+def verify_batch_results(
+    selected: list[tuple[dict[str, Any], dict[str, Any]]],
+    rows: Any,
+    check_map: list[tuple[int, str, int]],
+) -> int:
+    """Return count of leading steps whose batched execution AND effect verification both passed (pure)."""
+    if not isinstance(rows, list) or not selected:
+        return 0
+    n = len(selected)
+    # First check action rows 0..n-1
+    for i in range(n):
+        if i >= len(rows) or not isinstance(rows[i], dict) or rows[i].get("success") is not True:
+            return i
+
+    # All n actions succeeded; verify every checked step in order.
+    failed_at = n
+    for offset, action, row_idx in check_map:
+        if offset >= failed_at:
+            break
+        if row_idx >= len(rows) or not isinstance(rows[row_idx], dict) or rows[row_idx].get("success") is not True:
+            failed_at = offset
+            break
+        res = rows[row_idx].get("result")
+        if action == "fill":
+            val = res.get("value") if isinstance(res, dict) else None
+            if not isinstance(val, str) or val != selected[offset][0]["value"]:
+                failed_at = offset
+                break
+        elif action == "check":
+            checked = res.get("checked") if isinstance(res, dict) else None
+            if checked is not True:
+                failed_at = offset
+                break
+    return failed_at

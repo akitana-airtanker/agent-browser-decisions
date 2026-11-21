@@ -16,6 +16,8 @@ from agent_browser_decisions.core import (
     PROVIDER_ORDER,
     PROVIDERS,
     ROLES,
+    apply_plan_vars,
+    build_batch_commands,
     chosen_ref,
     command_for,
     compatible,
@@ -28,12 +30,16 @@ from agent_browser_decisions.core import (
     normalize,
     parse_dotenv,
     parse_snapshot,
+    parse_var_args,
     redact_text,
     resolve_decision_config,
     resolve_step_values,
     same_field_value,
+    select_tier1_batch,
     validate_plan,
     validate_run_options,
+    verify_batch_results,
+    wrap_verify_with_vars,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -565,3 +571,107 @@ def test_extract_input_tokens_never_raises_on_arbitrary_json(payload: object) ->
 def test_validate_run_options_rejects_unknown_provider(bad_provider: str) -> None:
     problems = validate_run_options({"steps": [{"action": "click", "target": "Go"}]}, provider=bad_provider)
     assert any("unknown provider" in p for p in problems)
+
+
+# ---------- plan vars & Tier-1 same-screen batching ----------
+
+VAR_NAME = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,12}", fullmatch=True)
+VAR_VAL = st.text(max_size=40).filter(lambda s: "{{" not in s and "}}" not in s)
+
+
+@given(st.dictionaries(VAR_NAME, VAR_VAL, min_size=1, max_size=5), st.dictionaries(VAR_NAME, VAR_VAL, max_size=3))
+def test_apply_plan_vars_expands_and_overrides_cleanly(defaults: dict[str, str], overrides: dict[str, str]) -> None:
+    keys = list(defaults)
+    plan = {
+        "url": f"https://example.com/?q={{{{{keys[0]}}}}}",
+        "vars": defaults,
+        "steps": [{"action": "fill", "target": "Name", "value": f"{{{{{k}}}}}"} for k in keys],
+    }
+    expanded, merged, problems = apply_plan_vars(plan, overrides)
+    assert problems == []
+    expected = {**defaults, **overrides}
+    assert merged == expected
+    assert expanded["url"] == f"https://example.com/?q={expected[keys[0]]}"
+    for step, k in zip(expanded["steps"], keys, strict=True):
+        assert step["value"] == expected[k]
+
+
+def test_apply_plan_vars_reports_undefined_placeholder() -> None:
+    plan = {"steps": [{"action": "fill", "target": "Name", "value": "{{missing_var}}"}]}
+    _, _, problems = apply_plan_vars(plan, {"other": "ok"})
+    assert any("missing_var" in p for p in problems)
+
+
+@given(st.dictionaries(VAR_NAME, st.text(max_size=30), min_size=1, max_size=4))
+def test_parse_var_args_and_wrap_verify_roundtrip(mapping: dict[str, str]) -> None:
+    raw = [f"{k}={v}" for k, v in mapping.items()]
+    parsed, problems = parse_var_args(raw)
+    assert problems == []
+    assert parsed == mapping
+    wrapped = wrap_verify_with_vars("VARS.x === 'ok'", parsed)
+    assert wrapped.startswith("((VARS) => (VARS.x === 'ok'))(")
+    assert wrap_verify_with_vars("true", {}) == "true"
+
+
+def test_parse_var_args_rejects_malformed_entries() -> None:
+    _, problems = parse_var_args(["no_equals", "123bad=val"])
+    assert len(problems) == 2
+
+
+def test_select_tier1_batch_batches_form_steps_and_stops_at_dynamic_or_duplicate() -> None:
+    elements = [
+        {"role": "textbox", "name": "Name", "ref": "e1", "context": ""},
+        {"role": "textbox", "name": "Email", "ref": "e2", "context": ""},
+        {"role": "radio", "name": "Large", "ref": "e3", "context": ""},
+        {"role": "combobox", "name": "Where to?", "ref": "e4", "context": ""},
+        {"role": "button", "name": "Submit", "ref": "e5", "context": ""},
+    ]
+    steps = [
+        {"action": "fill", "target": "Name", "value": "Hanako"},
+        {"action": "fill", "target": "Email", "value": "h@example.com"},
+        {"action": "check", "target": "Large", "role": "radio"},
+        {"action": "click", "target": "Submit", "role": "button"},
+    ]
+    batch = select_tier1_batch(steps, elements)
+    assert len(batch) == 3
+    cmds, check_map = build_batch_commands(batch)
+    assert cmds[:3] == [["fill", "@e1", "Hanako"], ["fill", "@e2", "h@example.com"], ["check", "@e3"]]
+    assert cmds[3:] == [["get", "value", "@e1"], ["get", "value", "@e2"], ["is", "checked", "@e3"]]
+
+    # All verified -> 3
+    rows_ok = [
+        {"index": 0, "success": True, "result": {"filled": "@e1"}},
+        {"index": 1, "success": True, "result": {"filled": "@e2"}},
+        {"index": 2, "success": True, "result": {"checked": "@e3"}},
+        {"index": 3, "success": True, "result": {"value": "Hanako"}},
+        {"index": 4, "success": True, "result": {"value": "h@example.com"}},
+        {"index": 5, "success": True, "result": {"checked": True}},
+    ]
+    assert verify_batch_results(batch, rows_ok, check_map) == 3
+
+    # Effect check fails on step index 1 -> returns 1 so runner falls back at step 2
+    rows_bad_val = list(rows_ok)
+    rows_bad_val[4] = {"index": 4, "success": True, "result": {"value": "wrong"}}
+    assert verify_batch_results(batch, rows_bad_val, check_map) == 1
+
+    # Combobox fill is never batched
+    combo_steps = [
+        {"action": "fill", "target": "Where to?", "value": "London"},
+        {"action": "fill", "target": "Name", "value": "Hanako"},
+    ]
+    assert select_tier1_batch(combo_steps, elements) == []
+
+    # Duplicate ref stops batching
+    dup_steps = [
+        {"action": "fill", "target": "Name", "value": "A"},
+        {"action": "fill", "target": "Name", "value": "B"},
+    ]
+    assert select_tier1_batch(dup_steps, elements) == []
+
+
+def test_validate_run_options_no_open_and_close_rules() -> None:
+    plan = {"url": "https://example.com", "reset": True, "steps": [{"action": "click", "target": "Go"}]}
+    assert validate_run_options(plan, session=None, no_open=True)
+    assert validate_run_options(plan, session=None, close_on_success=True)
+    assert validate_run_options(plan, session="s1", no_open=False)  # reset=true + session without no_open rejected
+    assert validate_run_options(plan, session="s1", no_open=True, close_on_success=True) == []

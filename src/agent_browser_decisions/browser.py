@@ -108,5 +108,39 @@ class AgentBrowser:
     def current_url(self) -> str:
         return self.call("get", "url", check=False, category="check").strip()
 
+    def batch(self, commands: list[list[str]], *, bail: bool = True, category: str = "act") -> list[dict[str, Any]]:
+        started = time.perf_counter()
+        env = {**os.environ, "AGENT_BROWSER_SESSION": self.session} if self.session else None
+        args = ["agent-browser", "batch", "--json", "--omit-command"]
+        if bail:
+            args.append("--bail")
+        try:
+            result = subprocess.run(
+                args,
+                input=json.dumps(commands, ensure_ascii=False),
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_s,
+                check=False,
+                env=env,
+            )
+        except FileNotFoundError as err:
+            raise RuntimeError(
+                "agent-browser CLI not found on PATH. Install it with: npm i -g agent-browser && agent-browser install"
+            ) from err
+        if self._on_metric is not None:
+            self._on_metric(category, time.perf_counter() - started)
+        if not result.stdout.strip():
+            detail = redact_text(result.stderr.strip() or "empty batch output", self.secrets)
+            raise RuntimeError(f"agent-browser batch failed: {detail}")
+        try:
+            parsed = json.loads(result.stdout)
+        except json.JSONDecodeError as err:
+            detail = redact_text(result.stdout[:200], self.secrets)
+            raise RuntimeError(f"unexpected batch payload: {detail}") from err
+        if not isinstance(parsed, list):
+            raise RuntimeError(f"unexpected batch payload type: {type(parsed).__name__}")
+        return parsed
+
     def close(self) -> None:
         self.call("close", check=False)

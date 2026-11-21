@@ -41,6 +41,16 @@
       "items": {
         "$ref": "#/$defs/step"
       }
+    },
+    "vars": {
+      "type": "object",
+      "description": "Default plan variables expanded via {{KEY}} in url/goal/steps and exposed as VARS.KEY in verify.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "if": {

@@ -142,8 +142,9 @@ agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-s
 
 ```bash
 agent-browser-decisions doctor [--env-file PATH] [--provider PROVIDER] [--model MODEL] [--base-url URL]
-agent-browser-decisions validate <plan.json | ->
+agent-browser-decisions validate <plan.json | -> [--var KEY=VALUE]...
 agent-browser-decisions run <plan.json | -> [--mode label|decide] [--session NAME] [--from-step N] \
+                                            [--var KEY=VALUE]... [--no-open] [--close] \
                                             [--provider openai|openrouter|gemini|typesafe|liquid] [--model MODEL] [--base-url URL] \
                                             [--env-file PATH] [--timeout 60] [--api-timeout 30]
 agent-browser-decisions profile
@@ -155,7 +156,7 @@ python -m agent_browser_decisions --help
 
 - `0` — all steps ran and verified (`verified: null` when `verify` is omitted), or `validate` / `doctor` passed.
 - `1` — step failure, `verify` failure, runtime/browser/API error, interrupt, or `doctor` missing `agent-browser`.
-- `2` — invalid plan JSON, schema violation, incompatible CLI options (`reset: true` + `--session`, `--from-step > 1` without `--session`), or missing `value_env`.
+- `2` — invalid plan JSON, schema violation, undefined `{{var}}`, incompatible CLI options (`reset: true` + `--session` without `--no-open`, `--from-step > 1` / `--no-open` / `--close` without `--session`), or missing `value_env`.
 
 ### Environment variables
 
