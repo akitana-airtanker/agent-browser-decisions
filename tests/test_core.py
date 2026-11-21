@@ -489,14 +489,28 @@ def test_chosen_ref_round_trips_openai_systemone_and_gemini_payloads(
     blocked = {"answers": {}, "prompt_feedback": {"block_reason": "SAFETY"}}
     assert chosen_ref(blocked) == (None, "blocked:SAFETY")
 
+    refused = {"answers": {"element": {"type": "refusal", "reason": "policy"}}}
+    assert chosen_ref(refused) == (None, "policy")
+
 
 @given(
     st.dictionaries(
-        st.sampled_from(["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "TYPESAFE_API_KEY", "LIQUID_API_KEY"]),
+        st.sampled_from(
+            [
+                "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY",
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+                "TYPESAFE_API_KEY",
+                "LIQUID_API_KEY",
+            ]
+        ),
         st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=12),
     ),
     st.sampled_from([None, *PROVIDER_ORDER]),
-    st.sampled_from([None, "gpt-6-luna", "gemini-decision-1", "jev-1.14.0", "d1.2-ultra"]),
+    st.sampled_from(
+        [None, "gpt-6-luna", "liquid/d1.2", "google/gemini-decision-1", "gemini-decision-1", "jev-1.14.0", "d1.2-ultra"]
+    ),
     st.sampled_from(
         [
             None,

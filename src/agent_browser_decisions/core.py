@@ -72,7 +72,7 @@ class DecisionConfig:
     auth_prefix: str
 
 
-PROVIDER_ORDER: tuple[str, ...] = ("openai", "gemini", "typesafe", "liquid")
+PROVIDER_ORDER: tuple[str, ...] = ("openai", "openrouter", "gemini", "typesafe", "liquid")
 PROVIDERS: dict[str, ProviderSpec] = {
     "openai": ProviderSpec(
         name="openai",
@@ -82,6 +82,17 @@ PROVIDERS: dict[str, ProviderSpec] = {
         endpoint_path="/decisions",
         api_key_envs=("OPENAI_API_KEY",),
         base_url_env="OPENAI_BASE_URL",
+        auth_header="Authorization",
+        auth_prefix="Bearer ",
+    ),
+    "openrouter": ProviderSpec(
+        name="openrouter",
+        protocol="systemone",
+        default_model="liquid/d1.2",
+        default_base_url="https://openrouter.ai/api/alpha",
+        endpoint_path="/decisions",
+        api_key_envs=("OPENROUTER_API_KEY",),
+        base_url_env="OPENROUTER_BASE_URL",
         auth_header="Authorization",
         auth_prefix="Bearer ",
     ),
@@ -268,17 +279,20 @@ def describe(element: Mapping[str, Any]) -> str:
 
 
 def infer_provider_from_model(model: str | None) -> str | None:
-    """Infer a provider name from a well-known decision model prefix, or return None."""
+    """Infer a provider name from a well-known decision model ID, or return None."""
     if not model:
         return None
     low = model.strip().lower()
     if not low:
         return None
+    # OpenRouter uses `vendor/model` slugs across all 40+ hosted decision models.
+    if "/" in low:
+        return "openrouter"
     if low.startswith("gemini"):
         return "gemini"
-    if low.startswith("jev") or "/jev" in low:
+    if low.startswith("jev"):
         return "typesafe"
-    if low == "d1" or low.startswith(("d1.", "d1-", "d1:")) or "/d1" in low:
+    if low == "d1" or low.startswith(("d1.", "d1-", "d1:")):
         return "liquid"
     if low.startswith("gpt-"):
         return "openai"
@@ -441,6 +455,8 @@ def chosen_ref(response: Any) -> tuple[str | None, Any]:
         answer = answers.get("element")
         if not isinstance(answer, dict):
             return None, "malformed_response"
+        if answer.get("type") == "refusal":
+            return None, answer.get("reason") or answer.get("refusal") or "refusal"
         choice = answer.get("choice")
         if not isinstance(choice, str) or not choice:
             return None, "missing_choice"

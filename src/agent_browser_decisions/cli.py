@@ -109,7 +109,7 @@ def _add_decision_flags(subparser: argparse.ArgumentParser) -> None:
     )
     subparser.add_argument(
         "--model",
-        help="Tier 2 decision model ID (e.g. gpt-6-luna, gemini-decision-1, jev-latest, d1.2)",
+        help="Tier 2 decision model ID (e.g. gpt-6-luna, liquid/d1.2, google/gemini-decision-1, jev-latest, d1.2)",
     )
     subparser.add_argument(
         "--base-url",

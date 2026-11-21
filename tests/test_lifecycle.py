@@ -692,12 +692,12 @@ def test_decisions_client_supports_gemini_typesafe_liquid_and_custom_endpoint() 
         res_liq = client.decide({"state": "ctx", "questions": {"element": {"type": "choice"}}})
     assert res_liq["answers"]["element"]["choice"] == "__none__"
 
-    # 4) Custom full endpoint URL (e.g. OpenRouter gateway) must not double-append /systemone
+    # 4) First-class OpenRouter Decisions API (auto-routed to /api/alpha/decisions)
     with DecisionsClient(
-        provider="typesafe",
+        provider="openrouter",
         api_key="or-secret-key",
-        base_url="https://openrouter.ai/api/alpha/decisions",
-        model="typesafe/jev-latest",
+        model="google/gemini-decision-1",
+        environ={},
         client=httpx.Client(transport=transport),
         on_metric=metrics_cb,
     ) as client:
@@ -716,7 +716,8 @@ def test_decisions_client_supports_gemini_typesafe_liquid_and_custom_endpoint() 
     assert seen[3][2]["model"] == "d1.2"
 
     assert seen[4][0] == "https://openrouter.ai/api/alpha/decisions"
-    assert seen[4][2]["model"] == "typesafe/jev-latest"
+    assert seen[4][1] == "Bearer or-secret-key"
+    assert seen[4][2]["model"] == "google/gemini-decision-1"
 
     assert [t for t in recorded_tokens if t > 0] == [181, 210, 145, 145]
 
