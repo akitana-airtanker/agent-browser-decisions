@@ -15,12 +15,12 @@ Web 操作は、次の優先順（上が優先）で**手順書（plan JSON）**
 | 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、iframe / Shadow DOM / ファイルアップロード / 件数カウント | **`agent-browser` 直接** |
 | 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・複数条件の検索・画面遷移など） | **手順書（`agent-browser-decisions`）** |
 
-- **手順書の3段階解決**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし）→ ② `nth` 未指定で曖昧または不一致なら OpenAI Decisions API が観測済みの互換 ref だけから選ぶ（429/5xx は自動で有界リトライ）→ ③ 解決不能または効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
+- **手順書の3段階解決**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI Decisions API / Gemini Decisions API / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
 - **`agent-browser` 直接操作の詳細**: CLI 構文やトラブルシュートが必要なら `agent-browser skills get core` を参照する。
 
 ## Setup & Run
 
-前提: `agent-browser`（`npm i -g agent-browser && agent-browser install`）と `uv` が入っていること。第1段階（ラベル一致）だけで通る手順書は `OPENAI_API_KEY` 不要。第2段階を使う場合だけ環境変数または `.env` に設定する（CLI は `--env-file` → `./.env` → リポジトリ直下の `.env` の順で自動読込し、既存環境変数は上書きしない）。
+前提: `agent-browser`（`npm i -g agent-browser && agent-browser install`）と `uv` が入っていること。第1段階（ラベル一致）だけで通る手順書は API キー不要。第2段階を使う場合だけ対応プロバイダのキー（`OPENAI_API_KEY` / `GEMINI_API_KEY` / `TYPESAFE_API_KEY` / `LIQUID_API_KEY`）を環境変数または `.env` に設定する（未指定時はキーや `--model` から自動判定、`--provider openai|gemini|typesafe|liquid`・`--model`・`--base-url` で明示切替も可。CLI は `--env-file` → `./.env` → リポジトリ直下の `.env` の順で自動読込し、既存環境変数は上書きしない）。
 
 ```bash
 # グローバル CLI として入れる場合（推奨）

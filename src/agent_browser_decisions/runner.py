@@ -17,7 +17,7 @@ import httpx
 
 from agent_browser_decisions.browser import AgentBrowser, quiet_profile
 from agent_browser_decisions.core import (
-    DEFAULT_DECISION_MODEL,
+    DEFAULT_PROVIDER,
     chosen_ref,
     command_for,
     compatible,
@@ -80,6 +80,9 @@ class PlanRunner:
         profile_factory: Callable[[], str] = quiet_profile,
         browser_timeout_s: float = 60.0,
         api_timeout_s: float = 30.0,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
         settle_s: float = 3.0,
         poll_s: float = 0.05,
         verify_poll_s: float = 0.5,
@@ -91,6 +94,9 @@ class PlanRunner:
         self._profile_factory = profile_factory
         self.browser_timeout_s = browser_timeout_s
         self.api_timeout_s = api_timeout_s
+        self.provider = provider
+        self.model = model
+        self.base_url = base_url
         self.settle_s = settle_s
         self.poll_s = poll_s
         self.verify_poll_s = verify_poll_s
@@ -136,8 +142,11 @@ class PlanRunner:
                 return None, 3, {"reason": "no label match (single candidate)"}, page
             return candidates[0], 2, {"single": True}, page
 
-        model = getattr(decisions, "model", None) or os.environ.get("DECISION_MODEL") or DEFAULT_DECISION_MODEL
-        response = decisions.decide(decision_request(step, goal, candidates, page["url"], model=model))
+        provider = getattr(decisions, "provider", DEFAULT_PROVIDER)
+        model = getattr(decisions, "model", None)
+        response = decisions.decide(
+            decision_request(step, goal, candidates, page["url"], model=model, provider=provider)
+        )
         ref, info = chosen_ref(response)
         if ref:
             chosen = next((e for e in candidates if e["ref"] == ref), None)
@@ -332,7 +341,10 @@ class PlanRunner:
     ) -> dict[str, Any]:
         """Validate, resolve env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
         env_map = os.environ if environ is None else environ
-        problems = validate_plan(plan) + validate_run_options(plan, session=session, from_step=from_step)
+        effective_provider = self.provider if self.provider is not None else env_map.get("DECISION_PROVIDER")
+        problems = validate_plan(plan) + validate_run_options(
+            plan, session=session, from_step=from_step, provider=effective_provider
+        )
         if problems:
             return {
                 "ok": False,
@@ -371,6 +383,10 @@ class PlanRunner:
             on_metric=metrics.add,
         )
         decisions = self._decisions_factory(
+            provider=self.provider,
+            model=self.model,
+            base_url=self.base_url,
+            environ=env_map,
             timeout_s=self.api_timeout_s,
             on_metric=metrics.add,
         )
@@ -525,10 +541,19 @@ def run_plan_file(
     *,
     browser_timeout_s: float = 60.0,
     api_timeout_s: float = 30.0,
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Convenience entry point using the default PlanRunner."""
-    return PlanRunner(browser_timeout_s=browser_timeout_s, api_timeout_s=api_timeout_s).run_plan_file(
+    return PlanRunner(
+        browser_timeout_s=browser_timeout_s,
+        api_timeout_s=api_timeout_s,
+        provider=provider,
+        model=model,
+        base_url=base_url,
+    ).run_plan_file(
         plan,
         mode=mode,
         session=session,

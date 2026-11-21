@@ -12,9 +12,10 @@ from typing import Any
 from agent_browser_decisions import __version__
 from agent_browser_decisions.browser import detect_agent_browser, quiet_profile
 from agent_browser_decisions.core import (
-    DEFAULT_BASE_URL,
-    DEFAULT_DECISION_MODEL,
+    PROVIDER_ORDER,
+    PROVIDERS,
     parse_dotenv,
+    resolve_decision_config,
     validate_plan,
 )
 from agent_browser_decisions.runner import run_plan_file
@@ -49,12 +50,22 @@ def load_dotenv_files(explicit: str | None = None) -> Path | None:
     return None
 
 
-def doctor_report(explicit_env_file: str | None = None) -> dict[str, Any]:
+def doctor_report(
+    explicit_env_file: str | None = None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+) -> dict[str, Any]:
     """Inspect runtime prerequisites and return a JSON-serialisable health report."""
-    had_env_key = bool(os.environ.get("OPENAI_API_KEY"))
+    pre_env_keys = {k for k, v in os.environ.items() if v}
     loaded_dotenv = load_dotenv_files(explicit_env_file)
-    has_key = bool(os.environ.get("OPENAI_API_KEY"))
-    key_source = "env" if had_env_key else ("dotenv" if has_key else None)
+    cfg = resolve_decision_config(provider=provider, model=model, base_url=base_url, environ=os.environ)
+    has_key = bool(cfg.api_key)
+    key_source = ("env" if cfg.api_key_env in pre_env_keys else "dotenv") if (has_key and cfg.api_key_env) else None
+    available_providers = {
+        name: any(bool(os.environ.get(k)) for k in PROVIDERS[name].api_key_envs) for name in PROVIDER_ORDER
+    }
     browser_info = detect_agent_browser()
     tier1_ready = bool(browser_info["installed"])
     tier2_ready = tier1_ready and has_key
@@ -64,11 +75,16 @@ def doctor_report(explicit_env_file: str | None = None) -> dict[str, Any]:
         "python": sys.version.split()[0],
         "agent_browser": browser_info,
         "decisions_api": {
+            "provider": cfg.provider,
+            "protocol": cfg.protocol,
             "api_key_set": has_key,
+            "key_env": cfg.api_key_env,
             "key_source": key_source,
             "dotenv_loaded": str(loaded_dotenv) if loaded_dotenv else None,
-            "model": os.environ.get("DECISION_MODEL") or DEFAULT_DECISION_MODEL,
-            "base_url": os.environ.get("OPENAI_BASE_URL") or DEFAULT_BASE_URL,
+            "model": cfg.model,
+            "base_url": cfg.base_url,
+            "endpoint_url": cfg.endpoint_url,
+            "available_providers": available_providers,
         },
         "tier1_ready": tier1_ready,
         "tier2_ready": tier2_ready,
@@ -85,11 +101,27 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _add_decision_flags(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--provider",
+        choices=list(PROVIDER_ORDER),
+        help="Tier 2 decision model provider (default: auto-detected from model/API keys, else openai)",
+    )
+    subparser.add_argument(
+        "--model",
+        help="Tier 2 decision model ID (e.g. gpt-6-luna, gemini-decision-1, jev-latest, d1.2)",
+    )
+    subparser.add_argument(
+        "--base-url",
+        help="override Tier 2 API base URL (or full /decisions / /systemone endpoint URL)",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agent-browser-decisions",
         description=(
-            "Run written browser plans through agent-browser with label matching and bounded Decisions API fallback."
+            "Run written browser plans through agent-browser with label matching and bounded decision model fallback."
         ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -97,8 +129,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("profile", help="create a Chrome profile with the password manager off and print its path")
 
-    doc = sub.add_parser("doctor", help="check agent-browser installation and Decisions API configuration")
+    doc = sub.add_parser("doctor", help="check agent-browser installation and decision model configuration")
     doc.add_argument("--env-file", help="optional .env file to check")
+    _add_decision_flags(doc)
 
     val = sub.add_parser("validate", help="check a plan file without touching the browser")
     val.add_argument("plan", help="plan JSON file, or - for stdin")
@@ -119,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         help="resume from 1-based step N in --session (skips url open and reset)",
     )
     run.add_argument("--env-file", help="optional .env file to load missing environment variables from")
+    _add_decision_flags(run)
     run.add_argument(
         "--timeout",
         type=_positive_float,
@@ -129,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         "--api-timeout",
         type=_positive_float,
         default=30.0,
-        help="per-request Decisions API timeout in seconds (default: 30)",
+        help="per-request decision API timeout in seconds (default: 30)",
     )
 
     args = parser.parse_args(argv)
@@ -139,7 +173,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "doctor":
-        report = doctor_report(args.env_file)
+        try:
+            report = doctor_report(
+                args.env_file,
+                provider=args.provider,
+                model=args.model,
+                base_url=args.base_url,
+            )
+        except ValueError as error:
+            print(json.dumps({"ok": False, "problems": [str(error)]}, ensure_ascii=False, indent=2))
+            return 2
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["ok"] else 1
 
@@ -166,6 +209,9 @@ def main(argv: list[str] | None = None) -> int:
         from_step=args.from_step,
         browser_timeout_s=args.timeout,
         api_timeout_s=args.api_timeout,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.base_url,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("problems"):

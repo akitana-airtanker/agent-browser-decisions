@@ -4,14 +4,14 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Deterministic, verifiable browser automation on top of [agent-browser](https://github.com/vercel-labs/agent-browser) and the OpenAI Decisions API.
+Deterministic, verifiable browser automation on top of [agent-browser](https://github.com/vercel-labs/agent-browser) and decision models (OpenAI Decisions API, Google Gemini Decisions API, TypeSafe AI Jev, and Liquid AI d1 / d1.2).
 
 Write a declarative JSON plan once, validate it before touching a browser, and execute it step by step:
 
 ```text
 resolve → act → check effect → verify
   tier 1  deterministic label / regex / nth match on the accessibility snapshot (no model, no API key)
-  tier 2  OpenAI Decisions API chooses among observed, action-compatible refs (bounded retries on 429/5xx)
+  tier 2  Decision model (OpenAI / Gemini / TypeSafe Jev / Liquid d1) chooses among observed refs (bounded retries on 429/5xx)
   tier 3  unresolved or failed effect → stop cleanly with structured JSON and hand back to caller
 ```
 
@@ -23,7 +23,7 @@ The model only ever chooses an observed `ref`. It never emits selectors, text, o
 
 - [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH` (`npm i -g agent-browser && agent-browser install`)
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
-- `OPENAI_API_KEY` (only needed when a step escalates to Tier 2; Tier 1 plans need no key)
+- Any one Tier 2 API key (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, or `LIQUID_API_KEY`) — only needed when a step escalates to Tier 2; Tier 1 plans need no key
 
 ### Option A: Install globally as a CLI
 
@@ -141,9 +141,10 @@ agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-s
 ## CLI reference
 
 ```bash
-agent-browser-decisions doctor [--env-file PATH]
+agent-browser-decisions doctor [--env-file PATH] [--provider PROVIDER] [--model MODEL] [--base-url URL]
 agent-browser-decisions validate <plan.json | ->
 agent-browser-decisions run <plan.json | -> [--mode label|decide] [--session NAME] [--from-step N] \
+                                            [--provider openai|gemini|typesafe|liquid] [--model MODEL] [--base-url URL] \
                                             [--env-file PATH] [--timeout 60] [--api-timeout 30]
 agent-browser-decisions profile
 agent-browser-decisions --version
@@ -162,11 +163,24 @@ python -m agent_browser_decisions --help
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | — | OpenAI API key with `/v1/decisions` access (required for Tier 2 only) |
-| `DECISION_MODEL` | `gpt-6-luna` | Model ID sent to `/v1/decisions` |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL for Decisions API requests |
+| `OPENAI_API_KEY` | — | OpenAI Decisions API key (`/v1/decisions`, default model `gpt-6-luna`) |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Google Gemini Decisions API key (`/v1beta/decisions`, default model `gemini-decision-1`) |
+| `TYPESAFE_API_KEY` | — | TypeSafe AI System One API key (`/v1/systemone`, default model `jev-latest`) |
+| `LIQUID_API_KEY` | — | Liquid AI System One API key (`/decisions/v1/systemone`, default model `d1.2`) |
+| `DECISION_PROVIDER` | auto | `openai`, `gemini`, `typesafe`, or `liquid` (auto-detected from `--model` / available key when omitted) |
+| `DECISION_MODEL` | per provider | Override Tier 2 model ID (e.g. `gpt-6-luna`, `gemini-decision-1`, `jev-latest`, `d1.2-ultra`) |
+| `DECISION_BASE_URL` | per provider | Override Tier 2 base URL or full `/decisions` / `/systemone` endpoint (e.g. OpenRouter or self-hosted `d1`) |
 | `AGENT_BROWSER_DECISIONS_ENV_FILE` | — | Default `.env` file path when `--env-file` is omitted |
 | `AGENT_BROWSER_SESSION` | `default` | Fallback session name used by `agent-browser` when neither `reset: true` nor `--session` is set |
+
+### Supported Tier 2 decision providers
+
+| Provider | Protocol | Default model | Endpoint | Auth header | Abstention |
+| --- | --- | --- | --- | --- | --- |
+| `openai` | OpenAI Decisions | `gpt-6-luna` | `https://api.openai.com/v1/decisions` | `Authorization: Bearer` | Native `allow_abstention: true` |
+| `gemini` | Gemini Decisions | `gemini-decision-1` | `https://generativelanguage.googleapis.com/v1beta/decisions` | `x-goog-api-key` | Explicit `__none__` option + `prompt_feedback` |
+| `typesafe` | System One | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
+| `liquid` | System One | `d1.2` | `https://api.liquid.ai/decisions/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
 
 ## Effect checks
 
@@ -205,7 +219,7 @@ Or symlink `skills/agent-browser-decisions` into `~/.agents/skills/agent-browser
 src/agent_browser_decisions/
 ├── core.py       # Pure domain logic (parsing, matching, validation, verify, redaction) — zero I/O
 ├── browser.py    # Session-scoped agent-browser CLI adapter & quiet Chrome profile helper
-├── decisions.py  # Context-managed OpenAI Decisions API client with bounded 429/5xx retries
+├── decisions.py  # Context-managed OpenAI / Gemini / System One client with bounded 429/5xx/529 retries
 ├── runner.py     # PlanRunner orchestrator (resolve → act → effect → verify, SIGINT cleanup)
 ├── cli.py        # CLI entry point (run, validate, doctor, profile)
 └── __main__.py   # `python -m agent_browser_decisions` entry point

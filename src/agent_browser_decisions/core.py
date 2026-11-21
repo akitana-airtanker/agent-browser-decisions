@@ -11,6 +11,7 @@ import re
 import unicodedata
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 ROLES: dict[str, set[str]] = {
@@ -35,8 +36,89 @@ ROLES: dict[str, set[str]] = {
     "check": {"checkbox", "radio", "switch"},
 }
 MAX_CHOICES = 255
+NONE_CHOICE = "__none__"
+DEFAULT_PROVIDER = "openai"
 DEFAULT_DECISION_MODEL = "gpt-6-luna"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSpec:
+    """Canonical wire-protocol specification for a decision model provider."""
+
+    name: str
+    protocol: str
+    default_model: str
+    default_base_url: str
+    endpoint_path: str
+    api_key_envs: tuple[str, ...]
+    base_url_env: str
+    auth_header: str
+    auth_prefix: str
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionConfig:
+    """Resolved provider, endpoint, model, and credentials for Tier 2."""
+
+    provider: str
+    protocol: str
+    model: str
+    base_url: str
+    endpoint_url: str
+    api_key: str | None
+    api_key_env: str | None
+    auth_header: str
+    auth_prefix: str
+
+
+PROVIDER_ORDER: tuple[str, ...] = ("openai", "gemini", "typesafe", "liquid")
+PROVIDERS: dict[str, ProviderSpec] = {
+    "openai": ProviderSpec(
+        name="openai",
+        protocol="openai",
+        default_model=DEFAULT_DECISION_MODEL,
+        default_base_url=DEFAULT_BASE_URL,
+        endpoint_path="/decisions",
+        api_key_envs=("OPENAI_API_KEY",),
+        base_url_env="OPENAI_BASE_URL",
+        auth_header="Authorization",
+        auth_prefix="Bearer ",
+    ),
+    "gemini": ProviderSpec(
+        name="gemini",
+        protocol="gemini",
+        default_model="gemini-decision-1",
+        default_base_url="https://generativelanguage.googleapis.com/v1beta",
+        endpoint_path="/decisions",
+        api_key_envs=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        base_url_env="GEMINI_BASE_URL",
+        auth_header="x-goog-api-key",
+        auth_prefix="",
+    ),
+    "typesafe": ProviderSpec(
+        name="typesafe",
+        protocol="systemone",
+        default_model="jev-latest",
+        default_base_url="https://api.typesafe.ai/v1",
+        endpoint_path="/systemone",
+        api_key_envs=("TYPESAFE_API_KEY",),
+        base_url_env="TYPESAFE_BASE_URL",
+        auth_header="Authorization",
+        auth_prefix="Bearer ",
+    ),
+    "liquid": ProviderSpec(
+        name="liquid",
+        protocol="systemone",
+        default_model="d1.2",
+        default_base_url="https://api.liquid.ai/decisions/v1",
+        endpoint_path="/systemone",
+        api_key_envs=("LIQUID_API_KEY",),
+        base_url_env="LIQUID_BASE_URL",
+        auth_header="Authorization",
+        auth_prefix="Bearer ",
+    ),
+}
 
 QUOTED = r'"(?P<name>(?:[^"\\]|\\.)*)"'
 LINE = re.compile(
@@ -185,47 +267,202 @@ def describe(element: Mapping[str, Any]) -> str:
     return " | ".join(p for p in parts if p)
 
 
+def infer_provider_from_model(model: str | None) -> str | None:
+    """Infer a provider name from a well-known decision model prefix, or return None."""
+    if not model:
+        return None
+    low = model.strip().lower()
+    if not low:
+        return None
+    if low.startswith("gemini"):
+        return "gemini"
+    if low.startswith("jev") or "/jev" in low:
+        return "typesafe"
+    if low == "d1" or low.startswith(("d1.", "d1-", "d1:")) or "/d1" in low:
+        return "liquid"
+    if low.startswith("gpt-"):
+        return "openai"
+    return None
+
+
+def resolve_decision_config(
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> DecisionConfig:
+    """Resolve Tier 2 provider, endpoint URL, model, and API key purely from args + env."""
+    env = environ if environ is not None else {}
+    raw_provider = (provider if provider is not None else env.get("DECISION_PROVIDER") or "").strip().lower()
+    arg_model = (model or "").strip()
+    env_model = (env.get("DECISION_MODEL") or "").strip()
+    raw_model = arg_model or env_model
+
+    if raw_provider:
+        chosen_provider = raw_provider
+    elif inferred := infer_provider_from_model(raw_model):
+        chosen_provider = inferred
+    else:
+        chosen_provider = next(
+            (name for name in PROVIDER_ORDER if any(env.get(k) for k in PROVIDERS[name].api_key_envs)),
+            DEFAULT_PROVIDER,
+        )
+
+    spec = PROVIDERS.get(chosen_provider)
+    if spec is None:
+        allowed = ", ".join(PROVIDER_ORDER)
+        raise ValueError(f"unknown provider {chosen_provider!r}; expected one of: {allowed}")
+
+    if arg_model:
+        resolved_model = arg_model
+    elif env_model:
+        env_model_provider = infer_provider_from_model(env_model)
+        # Ignore an inherited DECISION_MODEL from .env when it belongs to another provider.
+        resolved_model = (
+            spec.default_model if (env_model_provider and env_model_provider != chosen_provider) else env_model
+        )
+    else:
+        resolved_model = spec.default_model
+    resolved_base = (
+        (base_url if base_url is not None else "")
+        or (env.get("DECISION_BASE_URL") or "")
+        or (env.get(spec.base_url_env) or "")
+        or spec.default_base_url
+    ).rstrip("/")
+    if resolved_base.endswith(("/decisions", "/systemone")):
+        endpoint_url = resolved_base
+    else:
+        endpoint_url = f"{resolved_base}{spec.endpoint_path}"
+
+    resolved_key: str | None
+    key_env: str | None = None
+    if api_key is not None:
+        resolved_key = api_key or None
+    else:
+        resolved_key = None
+        for env_name in (*spec.api_key_envs, "DECISION_API_KEY"):
+            val = env.get(env_name)
+            if val:
+                resolved_key = val
+                key_env = env_name
+                break
+
+    return DecisionConfig(
+        provider=spec.name,
+        protocol=spec.protocol,
+        model=resolved_model,
+        base_url=resolved_base,
+        endpoint_url=endpoint_url,
+        api_key=resolved_key,
+        api_key_env=key_env,
+        auth_header=spec.auth_header,
+        auth_prefix=spec.auth_prefix,
+    )
+
+
 def decision_request(
     step: Mapping[str, Any],
     goal: str,
     candidates: list[dict[str, Any]],
     url: str,
     *,
-    model: str = DEFAULT_DECISION_MODEL,
+    model: str | None = None,
+    provider: str = DEFAULT_PROVIDER,
 ) -> dict[str, Any]:
-    """Build a /v1/decisions request whose choices are bounded to observed refs only."""
+    """Build a bounded decision request whose choices are restricted to observed refs only."""
+    spec = PROVIDERS.get(provider.strip().lower())
+    if spec is None:
+        allowed = ", ".join(PROVIDER_ORDER)
+        raise ValueError(f"unknown provider {provider!r}; expected one of: {allowed}")
+    resolved_model = model or spec.default_model
+    context_text = f"Page URL: {url}\nGoal: {goal}"
+    prompt_text = (
+        f"Action: {step['action']}\n"
+        f"Target: {step.get('describe') or step['target']}\n"
+        "Which observed element should this step act on?"
+    )
+    if spec.protocol == "openai":
+        return {
+            "model": resolved_model,
+            "context": context_text,
+            "questions": [
+                {
+                    "id": "element",
+                    "prompt": prompt_text,
+                    "choices": [{"value": e["ref"], "description": describe(e)} for e in candidates[:MAX_CHOICES]],
+                    "allow_abstention": True,
+                }
+            ],
+        }
+
+    # System One (TypeSafe Jev, Liquid d1/d1.2) and Gemini Decisions lack a native
+    # allow_abstention flag on `choice`, so reserve 1 slot of MAX_CHOICES for NONE_CHOICE.
+    criteria: dict[str, str] = {e["ref"]: describe(e) for e in candidates[: MAX_CHOICES - 1]}
+    criteria[NONE_CHOICE] = "None of the observed elements matches this step"
+    context_key = "input" if spec.protocol == "gemini" else "state"
     return {
-        "model": model,
-        "context": f"Page URL: {url}\nGoal: {goal}",
-        "questions": [
-            {
-                "id": "element",
-                "prompt": (
-                    f"Action: {step['action']}\n"
-                    f"Target: {step.get('describe') or step['target']}\n"
-                    "Which observed element should this step act on?"
-                ),
-                "choices": [{"value": e["ref"], "description": describe(e)} for e in candidates[:MAX_CHOICES]],
-                "allow_abstention": True,
+        "model": resolved_model,
+        context_key: context_text,
+        "questions": {
+            "element": {
+                "type": "choice",
+                "instructions": f"{prompt_text} Choose {NONE_CHOICE} if none matches.",
+                "criteria": criteria,
             }
-        ],
+        },
     }
 
 
 def chosen_ref(response: Any) -> tuple[str | None, Any]:
-    """Extract (ref, confidence) from a /v1/decisions payload, or (None, reason) on abstention/malformed output."""
+    """Extract (ref, confidence) from OpenAI, System One, or Gemini decision payloads."""
     if not isinstance(response, dict):
         return None, "malformed_response"
-    decisions = response.get("decisions")
-    if not isinstance(decisions, list) or not decisions or not isinstance(decisions[0], dict):
-        return None, "malformed_response"
-    decision = decisions[0]
-    if decision.get("status") != "answered":
-        return None, decision.get("abstention_reason") or decision.get("status") or "unanswered"
-    choice = decision.get("choice")
-    if not isinstance(choice, str) or not choice:
-        return None, "missing_choice"
-    return choice, decision.get("confidence")
+    if "decisions" in response:
+        decisions = response.get("decisions")
+        if not isinstance(decisions, list) or not decisions or not isinstance(decisions[0], dict):
+            return None, "malformed_response"
+        decision = decisions[0]
+        if decision.get("status") != "answered":
+            return None, decision.get("abstention_reason") or decision.get("status") or "unanswered"
+        choice = decision.get("choice")
+        if not isinstance(choice, str) or not choice:
+            return None, "missing_choice"
+        return choice, decision.get("confidence")
+
+    if "answers" in response or "prompt_feedback" in response:
+        answers = response.get("answers")
+        if not isinstance(answers, dict) or not answers:
+            feedback = response.get("prompt_feedback")
+            if isinstance(feedback, dict) and feedback.get("block_reason"):
+                return None, f"blocked:{feedback['block_reason']}"
+            return None, "malformed_response"
+        answer = answers.get("element")
+        if not isinstance(answer, dict):
+            return None, "malformed_response"
+        choice = answer.get("choice")
+        if not isinstance(choice, str) or not choice:
+            return None, "missing_choice"
+        if choice == NONE_CHOICE:
+            return None, "abstained"
+        return choice, answer.get("confidence")
+
+    return None, "malformed_response"
+
+
+def extract_input_tokens(response: Any) -> int:
+    """Extract input token count from OpenAI/System One (`input_tokens`) or Gemini (`total_input_tokens`)."""
+    if not isinstance(response, dict):
+        return 0
+    usage = response.get("usage")
+    if not isinstance(usage, dict):
+        return 0
+    for key in ("input_tokens", "total_input_tokens"):
+        val = usage.get(key)
+        if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
+            return val
+    return 0
 
 
 def command_for(step: Mapping[str, Any], ref: str) -> list[str]:
@@ -418,9 +655,15 @@ def validate_run_options(
     *,
     session: str | None = None,
     from_step: int = 1,
+    provider: str | None = None,
 ) -> list[str]:
     """Runtime option checks over an already schema-valid plan (pure)."""
     problems: list[str] = []
+    if provider is not None and provider.strip():
+        norm_provider = provider.strip().lower()
+        if norm_provider not in PROVIDERS:
+            allowed = ", ".join(PROVIDER_ORDER)
+            problems.append(f"provider: unknown provider {provider!r}; expected one of: {allowed}")
     if not _is_int(from_step) or from_step < 1:
         problems.append("from_step must be a positive integer")
     elif isinstance(plan, dict) and isinstance(plan.get("steps"), list) and from_step > len(plan["steps"]):

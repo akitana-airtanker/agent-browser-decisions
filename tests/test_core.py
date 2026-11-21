@@ -12,18 +12,24 @@ from hypothesis import strategies as st
 
 from agent_browser_decisions.core import (
     MAX_CHOICES,
+    NONE_CHOICE,
+    PROVIDER_ORDER,
+    PROVIDERS,
     ROLES,
     chosen_ref,
     command_for,
     compatible,
     decision_request,
     evaluate_verify_output,
+    extract_input_tokens,
     hash_route,
+    infer_provider_from_model,
     match_label,
     normalize,
     parse_dotenv,
     parse_snapshot,
     redact_text,
+    resolve_decision_config,
     resolve_step_values,
     same_field_value,
     validate_plan,
@@ -402,3 +408,146 @@ def test_examples_and_json_schema_match_core_contracts() -> None:
     for action, roles in ROLES.items():
         assert set(by_action[action]["properties"]["role"]["enum"]) == roles
         assert "if" in by_action[action] and "then" in by_action[action]
+
+
+# ---------- Multi-provider (OpenAI / System One / Gemini) properties ----------
+
+
+@given(
+    st.sampled_from(PROVIDER_ORDER),
+    st.one_of(
+        st.integers(min_value=2, max_value=20),
+        st.integers(min_value=MAX_CHOICES - 2, max_value=MAX_CHOICES + 15),
+    ),
+    st.text(max_size=12),
+)
+def test_decision_request_bounds_and_wire_shape_across_all_providers(
+    provider: str,
+    count: int,
+    target: str,
+) -> None:
+    elements = [
+        {
+            "role": "button",
+            "name": f"Item {i}",
+            "ref": f"e{i}",
+            "attrs": "",
+            "value": "",
+            "context": [],
+            "occurrence": "",
+        }
+        for i in range(1, count + 1)
+    ]
+    req = decision_request({"action": "click", "target": target}, "goal", elements, "https://x.test", provider=provider)
+    observed = {e["ref"] for e in elements}
+    spec = PROVIDERS[provider]
+    assert req["model"] == spec.default_model
+
+    if spec.protocol == "openai":
+        values = [c["value"] for c in req["questions"][0]["choices"]]
+        assert "context" in req
+        assert req["questions"][0]["allow_abstention"] is True
+        assert 0 < len(values) <= MAX_CHOICES
+        assert set(values) <= observed
+        assert len(values) == len(set(values))
+    else:
+        context_key = "input" if spec.protocol == "gemini" else "state"
+        assert context_key in req
+        q = req["questions"]["element"]
+        assert q["type"] == "choice"
+        criteria = q["criteria"]
+        assert 2 <= len(criteria) <= MAX_CHOICES
+        assert NONE_CHOICE in criteria
+        real_refs = set(criteria) - {NONE_CHOICE}
+        assert 0 < len(real_refs) <= MAX_CHOICES - 1
+        assert real_refs <= observed
+
+
+@given(
+    st.from_regex(r"e[0-9]{1,4}", fullmatch=True),
+    st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+    st.booleans(),
+)
+def test_chosen_ref_round_trips_openai_systemone_and_gemini_payloads(
+    ref: str,
+    confidence: float,
+    abstain: bool,
+) -> None:
+    openai_payload = (
+        {"decisions": [{"id": "element", "status": "abstained", "abstention_reason": "none_match"}]}
+        if abstain
+        else {"decisions": [{"id": "element", "status": "answered", "choice": ref, "confidence": confidence}]}
+    )
+    got_ref, got_info = chosen_ref(openai_payload)
+    assert (got_ref is None and got_info == "none_match") if abstain else (got_ref == ref and got_info == confidence)
+
+    s1_choice = NONE_CHOICE if abstain else ref
+    s1_payload = {"answers": {"element": {"type": "choice", "choice": s1_choice, "confidence": confidence}}}
+    got_ref2, got_info2 = chosen_ref(s1_payload)
+    assert (got_ref2 is None and got_info2 == "abstained") if abstain else (got_ref2 == ref and got_info2 == confidence)
+
+    blocked = {"answers": {}, "prompt_feedback": {"block_reason": "SAFETY"}}
+    assert chosen_ref(blocked) == (None, "blocked:SAFETY")
+
+
+@given(
+    st.dictionaries(
+        st.sampled_from(["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "TYPESAFE_API_KEY", "LIQUID_API_KEY"]),
+        st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=12),
+    ),
+    st.sampled_from([None, *PROVIDER_ORDER]),
+    st.sampled_from([None, "gpt-6-luna", "gemini-decision-1", "jev-1.14.0", "d1.2-ultra"]),
+    st.sampled_from(
+        [
+            None,
+            "https://proxy.test/v1",
+            "https://proxy.test/v1/",
+            "https://openrouter.ai/api/alpha/decisions",
+            "https://self.test/systemone",
+        ]
+    ),
+)
+def test_resolve_decision_config_precedence_and_endpoint_invariants(
+    env: dict[str, str],
+    explicit_provider: str | None,
+    explicit_model: str | None,
+    explicit_base_url: str | None,
+) -> None:
+    cfg = resolve_decision_config(
+        provider=explicit_provider,
+        model=explicit_model,
+        base_url=explicit_base_url,
+        environ=env,
+    )
+    assert cfg.provider in PROVIDERS
+    spec = PROVIDERS[cfg.provider]
+    assert cfg.protocol == spec.protocol
+    assert cfg.auth_header == spec.auth_header
+    assert not cfg.endpoint_url.endswith(
+        ("/decisions/decisions", "/systemone/systemone", "/decisions/systemone", "/systemone/decisions")
+    )
+    if explicit_provider is not None:
+        assert cfg.provider == explicit_provider
+    elif explicit_model is not None:
+        assert cfg.provider == infer_provider_from_model(explicit_model)
+    if explicit_base_url is not None and explicit_base_url.rstrip("/").endswith(("/decisions", "/systemone")):
+        assert cfg.endpoint_url == explicit_base_url.rstrip("/")
+    else:
+        assert cfg.endpoint_url.endswith(spec.endpoint_path)
+
+
+@given(st.integers(min_value=0, max_value=10**7), st.sampled_from(["input_tokens", "total_input_tokens"]))
+def test_extract_input_tokens_reads_openai_systemone_and_gemini_usage(tokens: int, field: str) -> None:
+    assert extract_input_tokens({"usage": {field: tokens}}) == tokens
+
+
+@given(JSON_VALUE)
+def test_extract_input_tokens_never_raises_on_arbitrary_json(payload: object) -> None:
+    got = extract_input_tokens(payload)
+    assert isinstance(got, int) and not isinstance(got, bool) and got >= 0
+
+
+@given(st.text(min_size=1, max_size=20).filter(lambda s: s.strip() and s.strip().lower() not in PROVIDERS))
+def test_validate_run_options_rejects_unknown_provider(bad_provider: str) -> None:
+    problems = validate_run_options({"steps": [{"action": "click", "target": "Go"}]}, provider=bad_provider)
+    assert any("unknown provider" in p for p in problems)

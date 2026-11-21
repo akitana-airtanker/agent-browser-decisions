@@ -603,3 +603,260 @@ def test_resolve_nth_waits_for_kth_item_and_stops_at_tier_3_when_missing() -> No
     assert res_miss["steps"][0]["tier"] == 3
     assert all(d.calls == 0 for d in decisions_miss)
     assert "nth out of range" in res_miss["steps"][0]["reason"]
+
+
+# ---------- Multi-provider HTTP adapter, PlanRunner, and CLI tests ----------
+
+
+def test_decisions_client_supports_gemini_typesafe_liquid_and_custom_endpoint() -> None:
+    seen: list[tuple[str, str, dict[str, Any]]] = []
+    recorded_tokens: list[int] = []
+    ts_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal ts_calls
+        payload = json.loads(request.content.decode("utf-8"))
+        seen.append(
+            (
+                str(request.url),
+                request.headers.get("x-goog-api-key") or request.headers.get("authorization") or "",
+                payload,
+            )
+        )
+
+        if "generativelanguage.googleapis.com" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "answers": {"element": {"type": "choice", "choice": "e2", "confidence": 0.97}},
+                    "usage": {"total_input_tokens": 181, "total_output_tokens": 0},
+                },
+            )
+        if "api.typesafe.ai" in str(request.url):
+            ts_calls += 1
+            if ts_calls == 1:
+                return httpx.Response(529, text="overloaded")
+            return httpx.Response(
+                200,
+                json={
+                    "model": "jev-1.14.0",
+                    "answers": {"element": {"type": "choice", "choice": "e1", "confidence": 0.94}},
+                    "usage": {"input_tokens": 210, "output_tokens": 0},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "model": "d1.2",
+                "answers": {"element": {"type": "choice", "choice": "__none__", "confidence": 0.88}},
+                "usage": {"input_tokens": 145, "output_tokens": 0},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+
+    def metrics_cb(_cat: str, _sec: float, tok: int) -> None:
+        recorded_tokens.append(tok)
+
+    # 1) Gemini Decisions API
+    with DecisionsClient(
+        provider="gemini",
+        api_key="gem-secret-key",
+        environ={"DECISION_MODEL": "gpt-6-luna"},
+        client=httpx.Client(transport=transport),
+        on_metric=metrics_cb,
+    ) as client:
+        res_gem = client.decide({"input": "ctx", "questions": {"element": {"type": "choice"}}})
+    assert res_gem["answers"]["element"]["choice"] == "e2"
+
+    # 2) TypeSafe Jev with HTTP 529 retry
+    with DecisionsClient(
+        provider="typesafe",
+        api_key="ts-secret-key",
+        environ={},
+        client=httpx.Client(transport=transport),
+        sleep=lambda _: None,
+        on_metric=metrics_cb,
+    ) as client:
+        res_ts = client.decide({"state": "ctx", "questions": {"element": {"type": "choice"}}})
+    assert res_ts["answers"]["element"]["choice"] == "e1"
+
+    # 3) Liquid d1.2 default endpoint
+    with DecisionsClient(
+        provider="liquid",
+        api_key="liq-secret-key",
+        environ={},
+        client=httpx.Client(transport=transport),
+        on_metric=metrics_cb,
+    ) as client:
+        res_liq = client.decide({"state": "ctx", "questions": {"element": {"type": "choice"}}})
+    assert res_liq["answers"]["element"]["choice"] == "__none__"
+
+    # 4) Custom full endpoint URL (e.g. OpenRouter gateway) must not double-append /systemone
+    with DecisionsClient(
+        provider="typesafe",
+        api_key="or-secret-key",
+        base_url="https://openrouter.ai/api/alpha/decisions",
+        model="typesafe/jev-latest",
+        client=httpx.Client(transport=transport),
+        on_metric=metrics_cb,
+    ) as client:
+        client.decide({"state": "ctx", "questions": {"element": {"type": "choice"}}})
+
+    assert seen[0][0] == "https://generativelanguage.googleapis.com/v1beta/decisions"
+    assert seen[0][1] == "gem-secret-key"
+    assert seen[0][2]["model"] == "gemini-decision-1"
+
+    assert seen[1][0] == "https://api.typesafe.ai/v1/systemone"
+    assert seen[1][1] == "Bearer ts-secret-key"
+    assert ts_calls == 2
+
+    assert seen[3][0] == "https://api.liquid.ai/decisions/v1/systemone"
+    assert seen[3][1] == "Bearer liq-secret-key"
+    assert seen[3][2]["model"] == "d1.2"
+
+    assert seen[4][0] == "https://openrouter.ai/api/alpha/decisions"
+    assert seen[4][2]["model"] == "typesafe/jev-latest"
+
+    assert [t for t in recorded_tokens if t > 0] == [181, 210, 145, 145]
+
+
+def test_decisions_client_gemini_401_never_leaks_api_key() -> None:
+    secret = "AIzaSySecretKeyShouldNeverLeak12345"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text=f"unauthorized for key {secret}")
+
+    with (
+        DecisionsClient(
+            provider="gemini",
+            api_key=secret,
+            client=httpx.Client(transport=httpx.MockTransport(handler)),
+            sleep=lambda _: None,
+        ) as client,
+        pytest.raises(DecisionsError) as exc_info,
+    ):
+        client.decide({"input": "x", "questions": {}})
+
+    assert "401" in str(exc_info.value)
+    assert secret not in str(exc_info.value)
+
+
+def test_plan_runner_end_to_end_with_gemini_and_liquid_abstention() -> None:
+    ambiguous_snap = '- link "Learn more" [ref=e1]\n- link "Learn more" [ref=e2]'
+    sent_payloads: list[dict[str, Any]] = []
+
+    def gemini_handler(request: httpx.Request) -> httpx.Response:
+        sent_payloads.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "answers": {"element": {"type": "choice", "choice": "e2", "confidence": 0.96}},
+                "usage": {"total_input_tokens": 120},
+            },
+        )
+
+    def liquid_abstain_handler(request: httpx.Request) -> httpx.Response:
+        sent_payloads.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "answers": {"element": {"type": "choice", "choice": "__none__", "confidence": 0.91}},
+                "usage": {"input_tokens": 95},
+            },
+        )
+
+    browsers_ok: list[SequenceBrowser] = []
+
+    def make_browser_ok(session: str | None = None, **kwargs: Any) -> SequenceBrowser:
+        b = SequenceBrowser([ambiguous_snap], session=session, **kwargs)
+        browsers_ok.append(b)
+        return b
+
+    runner_gem = PlanRunner(
+        browser_factory=make_browser_ok,
+        decisions_factory=lambda **kw: DecisionsClient(
+            client=httpx.Client(transport=httpx.MockTransport(gemini_handler)),
+            **kw,
+        ),
+        provider="gemini",
+        settle_s=0.05,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_gem = runner_gem.run_plan_file(
+        {
+            "goal": "Open the second Learn more link",
+            "steps": [{"action": "click", "target": "Learn more", "role": "link", "navigates": False}],
+            "verify": "true",
+        },
+        environ={"GEMINI_API_KEY": "gem-test"},
+    )
+    assert res_gem["ok"] is True
+    assert res_gem["steps"][0]["tier"] == 2
+    assert browsers_ok[0].act_calls == [("click", "@e2")]
+    assert "input" in sent_payloads[0]
+    assert "__none__" in sent_payloads[0]["questions"]["element"]["criteria"]
+
+    runner_liq = PlanRunner(
+        browser_factory=lambda session=None, **kw: SequenceBrowser([ambiguous_snap], session=session, **kw),
+        decisions_factory=lambda **kw: DecisionsClient(
+            client=httpx.Client(transport=httpx.MockTransport(liquid_abstain_handler)),
+            **kw,
+        ),
+        provider="liquid",
+        settle_s=0.05,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_liq = runner_liq.run_plan_file(
+        {
+            "goal": "Click the checkout button",
+            "steps": [{"action": "click", "target": "Checkout", "role": "link", "navigates": False}],
+        },
+        session="existing-sess",
+        environ={"LIQUID_API_KEY": "liq-test"},
+    )
+    assert res_liq["ok"] is False
+    assert res_liq["stopped_at_step"] == 1
+    assert res_liq["session_open"] is True
+    assert res_liq["steps"][0]["tier"] == 3
+    assert res_liq["steps"][0]["reason"] == "decision abstained"
+    assert "state" in sent_payloads[1]
+
+
+def test_cli_doctor_and_run_multi_provider_flags_and_invalid_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for var in (
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "TYPESAFE_API_KEY",
+        "LIQUID_API_KEY",
+        "DECISION_PROVIDER",
+        "DECISION_MODEL",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-cli-test")
+
+    rc_doc = main(["doctor", "--env-file", str(tmp_path / "missing.env")])
+    report = json.loads(capsys.readouterr().out)
+    assert rc_doc in (0, 1)
+    assert report["decisions_api"]["provider"] == "gemini"
+    assert report["decisions_api"]["protocol"] == "gemini"
+    assert report["decisions_api"]["model"] == "gemini-decision-1"
+    assert report["decisions_api"]["api_key_set"] is True
+    assert report["decisions_api"]["key_env"] == "GEMINI_API_KEY"
+    assert report["decisions_api"]["available_providers"]["gemini"] is True
+    assert report["decisions_api"]["available_providers"]["openai"] is False
+
+    plan_path = tmp_path / "p.json"
+    plan_path.write_text(json.dumps({"steps": [{"action": "click", "target": "Go"}]}), encoding="utf-8")
+    monkeypatch.setenv("DECISION_PROVIDER", "bogus")
+    rc_bad = main(["run", str(plan_path), "--env-file", str(tmp_path / "missing.env")])
+    bad_out = json.loads(capsys.readouterr().out)
+    assert rc_bad == 2
+    assert any("unknown provider" in p for p in bad_out["problems"])
