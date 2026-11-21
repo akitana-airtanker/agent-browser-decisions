@@ -1,0 +1,69 @@
+{
+  "url": "https://www.google.com/travel/flights?hl=en",
+  "goal": "Search one-way flights from Zurich to London on Tuesday, December 15, 2026.",
+  "reset": true,
+  "steps": [
+    {
+      "action": "click",
+      "target": "Change ticket type.",
+      "role": "combobox"
+    },
+    {
+      "action": "click",
+      "target": "One way",
+      "role": "option"
+    },
+    {
+      "action": "click",
+      "target": "Where from?",
+      "role": "combobox"
+    },
+    {
+      "action": "fill",
+      "target": "Where else?",
+      "value": "Zurich"
+    },
+    {
+      "action": "click",
+      "target": "Zürich, Switzerland",
+      "role": "option"
+    },
+    {
+      "action": "click",
+      "target": "Where to?",
+      "role": "combobox"
+    },
+    {
+      "action": "fill",
+      "target": "Where to?",
+      "value": "London"
+    },
+    {
+      "action": "click",
+      "target": "London, United Kingdom",
+      "role": "option"
+    },
+    {
+      "action": "click",
+      "target": "Departure",
+      "role": "textbox"
+    },
+    {
+      "action": "click",
+      "target": "Tuesday, December 15, 2026",
+      "role": "button"
+    },
+    {
+      "action": "click",
+      "target": "Done.",
+      "role": "button"
+    },
+    {
+      "action": "click",
+      "target": "Search",
+      "role": "button"
+    }
+  ],
+  "verify": "(() => { if (!location.href.includes('/travel/flights/search')) return false; const val = name => [...document.querySelectorAll('input')]   .filter(e => e.offsetParent !== null && (e.getAttribute('aria-label') || '').trim() === name)   .map(e => e.value)[0] || ''; const retVisible = [...document.querySelectorAll('input[aria-label=\"Return\"]')]   .some(e => e.offsetParent !== null); return val('Where from?').includes('Zürich')   && val('Where to?').includes('London')   && val('Departure').includes('Dec 15')   && !retVisible;})()",
+  "verify_timeout_s": 10
+}

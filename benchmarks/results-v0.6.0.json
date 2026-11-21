@@ -1,0 +1,545 @@
+{
+  "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "main": {
+    "rounds": 5,
+    "summary": {
+      "httpbin_playwright": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.49,
+        "min_ok_s": 1.39,
+        "max_ok_s": 1.9,
+        "median_all_s": 1.49
+      },
+      "httpbin_batch": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.29,
+        "min_ok_s": 1.28,
+        "max_ok_s": 1.45,
+        "median_all_s": 1.29
+      },
+      "httpbin_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.59,
+        "min_ok_s": 1.43,
+        "max_ok_s": 1.76,
+        "median_all_s": 1.59
+      },
+      "flights_playwright": {
+        "passed": 4,
+        "total": 5,
+        "median_ok_s": 3.34,
+        "min_ok_s": 3.25,
+        "max_ok_s": 3.5,
+        "median_all_s": 3.36
+      },
+      "flights_batch_wait": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 3.14,
+        "min_ok_s": 3.1,
+        "max_ok_s": 3.27,
+        "median_all_s": 3.14
+      },
+      "flights_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 3.75,
+        "min_ok_s": 3.61,
+        "max_ok_s": 4.43,
+        "median_all_s": 3.75
+      }
+    },
+    "raw": {
+      "httpbin_playwright": [
+        {
+          "ok": true,
+          "wall_s": 1.903,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.509,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.385,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.393,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.487,
+          "error": null
+        }
+      ],
+      "httpbin_batch": [
+        {
+          "ok": true,
+          "wall_s": 1.289,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-25216-1795296110643",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.449,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-25216-1795296124382",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.285,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-25216-1795296142501",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.31,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-25216-1795296155650",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.28,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-25216-1795296183562",
+          "error": null
+        }
+      ],
+      "httpbin_abd": [
+        {
+          "ok": true,
+          "wall_s": 1.433,
+          "internal_ms": 1382,
+          "stopped_at_step": null,
+          "session": "abd-1795296112085-25273",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.593,
+          "internal_ms": 1539,
+          "stopped_at_step": null,
+          "session": "abd-1795296125987-25634",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.759,
+          "internal_ms": 1710,
+          "stopped_at_step": null,
+          "session": "abd-1795296139392-25865",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.631,
+          "internal_ms": 1573,
+          "stopped_at_step": null,
+          "session": "abd-1795296157124-26110",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.432,
+          "internal_ms": 1380,
+          "stopped_at_step": null,
+          "session": "abd-1795296184998-26363",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "flights_playwright": [
+        {
+          "ok": true,
+          "wall_s": 3.249,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.363,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.316,
+          "error": null
+        },
+        {
+          "ok": false,
+          "wall_s": 17.848,
+          "error": "    - waiting 500ms"
+        },
+        {
+          "ok": true,
+          "wall_s": 3.498,
+          "error": null
+        }
+      ],
+      "flights_batch_wait": [
+        {
+          "ok": true,
+          "wall_s": 3.109,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-25216-1795296116724",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.229,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-25216-1795296129043",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.104,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-25216-1795296151041",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.144,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-25216-1795296176553",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.272,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-25216-1795296187872",
+          "error": null
+        }
+      ],
+      "flights_abd": [
+        {
+          "ok": true,
+          "wall_s": 4.435,
+          "internal_ms": 4386,
+          "stopped_at_step": null,
+          "session": "abd-1795296119989-25339",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.61,
+          "internal_ms": 3560,
+          "stopped_at_step": null,
+          "session": "abd-1795296132427-25775",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.826,
+          "internal_ms": 3772,
+          "stopped_at_step": null,
+          "session": "abd-1795296143947-25946",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.755,
+          "internal_ms": 3692,
+          "stopped_at_step": null,
+          "session": "abd-1795296179863-26250",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.68,
+          "internal_ms": 3640,
+          "stopped_at_step": null,
+          "session": "abd-1795296191292-26460",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ]
+    }
+  },
+  "reuse": {
+    "rounds": 5,
+    "summary": {
+      "abd_cold": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.42,
+        "min_ok_s": 1.4,
+        "max_ok_s": 1.46,
+        "median_all_s": 1.42
+      },
+      "abd_reload": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.39,
+        "min_ok_s": 0.38,
+        "max_ok_s": 0.5,
+        "median_all_s": 0.39
+      },
+      "abd_no_open": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.31,
+        "min_ok_s": 0.31,
+        "max_ok_s": 0.31,
+        "median_all_s": 0.31
+      }
+    },
+    "raw": {
+      "abd_cold": [
+        {
+          "ok": true,
+          "wall_s": 1.462,
+          "internal_ms": 1421,
+          "stopped_at_step": null,
+          "session": "abd-1795296198470-26574",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.432,
+          "internal_ms": 1391,
+          "stopped_at_step": null,
+          "session": "abd-1795296199931-26599",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.424,
+          "internal_ms": 1380,
+          "stopped_at_step": null,
+          "session": "abd-1795296201366-26622",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.409,
+          "internal_ms": 1368,
+          "stopped_at_step": null,
+          "session": "abd-1795296202789-26645",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.396,
+          "internal_ms": 1355,
+          "stopped_at_step": null,
+          "session": "abd-1795296204198-26672",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "abd_reload": [
+        {
+          "ok": true,
+          "wall_s": 0.385,
+          "internal_ms": 337,
+          "stopped_at_step": null,
+          "session": "abd-1795296205598-26720",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.401,
+          "internal_ms": 352,
+          "stopped_at_step": null,
+          "session": "abd-1795296205598-26720",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.382,
+          "internal_ms": 334,
+          "stopped_at_step": null,
+          "session": "abd-1795296205598-26720",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.383,
+          "internal_ms": 336,
+          "stopped_at_step": null,
+          "session": "abd-1795296205598-26720",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.496,
+          "internal_ms": 450,
+          "stopped_at_step": null,
+          "session": "abd-1795296205598-26720",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "abd_no_open": [
+        {
+          "ok": true,
+          "wall_s": 0.313,
+          "internal_ms": 260,
+          "stopped_at_step": null,
+          "session": "bench-noopen-25216-0",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.307,
+          "internal_ms": 256,
+          "stopped_at_step": null,
+          "session": "bench-noopen-25216-1",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.312,
+          "internal_ms": 263,
+          "stopped_at_step": null,
+          "session": "bench-noopen-25216-2",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.31,
+          "internal_ms": 260,
+          "stopped_at_step": null,
+          "session": "bench-noopen-25216-3",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.312,
+          "internal_ms": 263,
+          "stopped_at_step": null,
+          "session": "bench-noopen-25216-4",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ]
+    }
+  },
+  "drift": {
+    "playwright_default_timeout3s": {
+      "ok": false,
+      "wall_s": 4.446,
+      "error": "  - waiting for get_by_role(\"radio\", name=\"Extra Large\")"
+    },
+    "batch_bail": {
+      "ok": false,
+      "wall_s": 1.103,
+      "verify": null,
+      "steps_ran": 5,
+      "steps_total": 10,
+      "session": "bench-drift-batch-25216-1795296221208",
+      "error": "3 elements have role \"radio\", but none match name \"Extra Large\". Names seen: \"Small\", \"Medium\", \"Large\"",
+      "session_kept_custname": "\"Taro Yamada\""
+    },
+    "abd_stop": {
+      "ok": false,
+      "wall_s": 4.333,
+      "internal_ms": 4286,
+      "stopped_at_step": 4,
+      "session": "abd-1795296222479-26967",
+      "session_open": true,
+      "stopped_snapshot_lines": 15,
+      "error": ""
+    },
+    "abd_kept_custname": "\"Taro Yamada\"",
+    "abd_resume_from_step_4": {
+      "ok": true,
+      "wall_s": 0.268,
+      "internal_ms": 223,
+      "stopped_at_step": null,
+      "session": "abd-1795296222479-26967",
+      "session_open": false,
+      "stopped_snapshot_lines": 0,
+      "error": null
+    },
+    "abd_resume_from_step_5_after_direct_op": {
+      "ok": true,
+      "wall_s": 0.25,
+      "internal_ms": 206,
+      "stopped_at_step": null,
+      "session": "abd-1795296227211-27082",
+      "session_open": false,
+      "stopped_snapshot_lines": 0,
+      "error": null
+    }
+  }
+}

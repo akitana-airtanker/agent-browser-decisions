@@ -1,0 +1,51 @@
+{
+  "url": "https://httpbin.org/forms/post",
+  "reset": true,
+  "vars": {
+    "name": "Taro Yamada",
+    "tel": "090-1234-5678",
+    "email": "taro@example.com",
+    "size": "Medium",
+    "t1": "Bacon",
+    "t2": "Extra Cheese",
+    "note": "Leave at front door"
+  },
+  "steps": [
+    {
+      "action": "fill",
+      "target": "Customer name:",
+      "value": "{{name}}"
+    },
+    {
+      "action": "fill",
+      "target": "Telephone:",
+      "value": "{{tel}}"
+    },
+    {
+      "action": "fill",
+      "target": "E-mail address:",
+      "value": "{{email}}"
+    },
+    {
+      "action": "check",
+      "target": "{{size}}",
+      "role": "radio"
+    },
+    {
+      "action": "check",
+      "target": "{{t1}}",
+      "role": "checkbox"
+    },
+    {
+      "action": "check",
+      "target": "{{t2}}",
+      "role": "checkbox"
+    },
+    {
+      "action": "fill",
+      "target": "Delivery instructions:",
+      "value": "{{note}}"
+    }
+  ],
+  "verify": "(() => { const v = n => document.querySelector(`[name=${n}]`)?.value; const sz = document.querySelector('input[name=size]:checked')?.parentElement.textContent.trim(); const tp = [...document.querySelectorAll('input[name=topping]:checked')].map(e => e.parentElement.textContent.trim()); return v('custname') === VARS.name && v('custtel') === VARS.tel && v('custemail') === VARS.email && sz === VARS.size && tp.length === 2 && tp.includes(VARS.t1) && tp.includes(VARS.t2) && v('comments') === VARS.note;})()"
+}
