@@ -37,7 +37,7 @@ agent-browser-decisions run - <<'EOF'
   "url": "https://quotes.toscrape.com/",
   "reset": true,
   "steps": [
-    {"action": "click", "target": "inspirational", "role": "link"},
+    {"action": "click", "target": "inspirational", "role": "link", "nth": 1},
     {"action": "click", "target": "Next", "role": "link"}
   ],
   "verify": "location.pathname === '/tag/inspirational/page/2/'"

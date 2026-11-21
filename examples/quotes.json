@@ -7,7 +7,8 @@
     {
       "action": "click",
       "target": "inspirational",
-      "role": "link"
+      "role": "link",
+      "nth": 1
     },
     {
       "action": "click",
