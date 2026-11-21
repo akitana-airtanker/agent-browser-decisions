@@ -1,0 +1,316 @@
+{
+  "date": "2026-11-22 06:44:40 JST",
+  "model": "claude-opus-5-5",
+  "versions": {
+    "agent_browser_decisions": "agent-browser-decisions 0.6.0",
+    "agent_browser": "agent-browser 0.41.1",
+    "claude": "2.1.330 (Claude Code)"
+  },
+  "recovery_trace": {
+    "returncode": 0,
+    "wall_ms": 31476,
+    "duration_ms": 29050,
+    "num_turns": 4,
+    "total_cost_usd": 0.36002639999999997,
+    "is_error": false,
+    "leaked_sessions_closed": [],
+    "tool_calls": [
+      {
+        "name": "Bash",
+        "input": {
+          "command": "cat /tmp/httpbin-drift.json; echo; which agent-browser-decisions agent-browser",
+          "description": "保存済みの手順書と CLI の場所を確認"
+        }
+      },
+      {
+        "name": "Bash",
+        "input": {
+          "command": "cd /tmp && agent-browser-decisions run /tmp/httpbin-drift.json > /tmp/httpbin-drift.run1.json; echo \"rc=$?\"; python3 -I -c '\nimport json;d=json.load(open(\"/tmp/httpbin-drift.run1.json\"))\nprint({k:d.get(k) for k in [\"ok\",\"verified\",\"stopped_at_step\",\"session\",\"session_open\",\"error\"]})\nfor s in d.get(\"steps\",[]): print(s)\nprint(\"--- stopped_snapshot ---\"); print(d.get(\"stopped_snapshot\"))'",
+          "description": "手順書を実行して結果の要点を表示",
+          "timeout": 300000
+        }
+      },
+      {
+        "name": "Bash",
+        "input": {
+          "command": "S=abd-1795297490220-34368; agent-browser-decisions run /tmp/httpbin-drift.json --session \"$S\" --no-open --from-step 4 --var size=Large --close > /tmp/httpbin-drift.run2.json; echo \"rc=$?\"; python3 -I -c '\nimport json;d=json.load(open(\"/tmp/httpbin-drift.run2.json\"))\nprint({k:d.get(k) for k in [\"ok\",\"verified\",\"stopped_at_step\",\"session\",\"session_open\",\"error\",\"problems\"]})\nfor s in d.get(\"steps\",[]): print(s)\nif d.get(\"stopped_snapshot\"): print(d[\"stopped_snapshot\"])'",
+          "description": "同じセッションで4手目から size=Large に読み替えて再開",
+          "timeout": 300000
+        }
+      }
+    ],
+    "tool_results_preview": [
+      "{\n  \"url\": \"https://httpbin.org/forms/post\",\n  \"reset\": true,\n  \"vars\": {\n    \"name\": \"Taro Yamada\",\n    \"tel\": \"090-1234-5678\",\n    \"email\": \"taro@example.com\",\n    \"size\": \"Extra Large\",\n    \"t1\": \"Bacon\",\n    \"t2\": \"Extra Cheese\",\n    \"note\": \"Leave at front door\"\n  },\n  \"steps\": [\n    {\n      \"action\": \"fill\",\n      \"target\": \"Customer name:\",\n      \"value\": \"{{name}}\"\n    },\n    {\n      \"action\": \"fill\",\n      \"target\": \"Telephone:\",\n      \"value\": \"{{tel}}\"\n    },\n    {\n      \"action\": \"fill\",\n      \"target\": \"E-mail address:\",\n      \"value\": \"{{email}}\"\n    },\n    {\n      \"action\": \"check\",\n      \"target\": \"{{size}}\",\n      \"role\": \"radio\"\n    },\n    {\n      \"action\": \"check\",\n      \"target\": \"{{t1}}\",\n      \"role\": \"checkbox\"\n    },\n    {\n      \"action\": \"check\",\n      \"target\": \"{{t2}}\",\n      \"role\": \"checkbox\"\n    },\n    {\n      \"action\": \"fill\",\n      \"target\": \"Delivery instructions:\",\n      \"value\": \"{{note}}\"\n    }\n  ],\n  \"verify\": \"(() => { const v = n => document.querySelector(`[name=${n}]`)?.value; const sz = document.querySelector('input[name=size]:checked')?.parentElement.textContent.trim(); const tp = [...document.querySelectorAll('input[name=topping]:checked')",
+      "rc=1\n{'ok': False, 'verified': None, 'stopped_at_step': 4, 'session': 'abd-1795297490220-34368', 'session_open': True, 'error': None}\n{'step': 1, 'tier': 1, 'tiers': [1], 'target': 'Customer name:', 'chose': 'Customer name:', 'effect': 'ok', 'batched': True, 'ms': 34}\n{'step': 2, 'tier': 1, 'tiers': [1], 'target': 'Telephone:', 'chose': 'Telephone:', 'effect': 'ok', 'batched': True, 'ms': 34}\n{'step': 3, 'tier': 1, 'tiers': [1], 'target': 'E-mail address:', 'chose': 'E-mail address:', 'effect': 'ok', 'batched': True, 'ms': 34}\n{'step': 4, 'tier': None, 'target': 'Extra Large', 'chose': None, 'effect': None, 'error': \"OPENAI_API_KEY is required for provider 'openai': a step needs the decision model (no unique label match)\", 'ms': None}\n--- stopped_snapshot ---\n- textbox \"Customer name:\" [ref=e2]: Taro Yamada\n- textbox \"Telephone:\" [ref=e3]: 090-1234-5678\n- textbox \"E-mail address:\" [ref=e4]: taro@example.com\n- radio \"Small\" [checked=false, ref=e5]\n- radio \"Medium\" [checked=false, ref=e6]\n- radio \"Large\" [checked=false, ref=e7]\n- checkbox \"Bacon\" [checked=false, ref=e8]\n- checkbox \"Extra Cheese\" [checked=false, ref=e9]\n- checkbox \"Onion\" [checked=false, ref=e10]\n- checkbox \"Mushroom\"",
+      "rc=0\n{'ok': True, 'verified': True, 'stopped_at_step': None, 'session': 'abd-1795297490220-34368', 'session_open': False, 'error': None, 'problems': None}\n{'step': 4, 'tier': 1, 'tiers': [1], 'target': 'Large', 'chose': 'Large', 'effect': 'ok', 'batched': True, 'ms': 28}\n{'step': 5, 'tier': 1, 'tiers': [1], 'target': 'Bacon', 'chose': 'Bacon', 'effect': 'ok', 'batched': True, 'ms': 28}\n{'step': 6, 'tier': 1, 'tiers': [1], 'target': 'Extra Cheese', 'chose': 'Extra Cheese', 'effect': 'ok', 'batched': True, 'ms': 28}\n{'step': 7, 'tier': 1, 'tiers': [1], 'target': 'Delivery instructions:', 'chose': 'Delivery instructions:', 'effect': 'ok', 'batched': True, 'ms': 28}"
+    ],
+    "result_text": "7項目すべて入力でき、verify も通ってセッションを閉じました。Submit order は押していません。\n\n**経過**\n1. 1回目の実行は4手目で止まりました。手順書の `\"Extra Large\"` に合うラジオボタンがページになく、あるのは Small / Medium / Large の3つだけでした。判断モデルに回そうとしましたが、`OPENAI_API_KEY` が設定されていないため選べませんでした。1〜3手目（名前・電話・メール）は入力済みでした。\n2. 開いたままのセッション `abd-1795297490220-34368` で、`--from-step 4 --var size=Large` を付けて4手目から再開しました。4〜7手目はラベルの一致で決まり、結果は `rc=0`、`ok: true`、`verified: true`、`session_open: false` です。\n\n**注意点**\n- 今回通った verify は「Large が選ばれている」ことの確認です。注文の中身が Extra Large から Large へ変わっています。本物の注文なら、サイズを下げてよいか発注者に確かめる必要があります。\n- `/tmp/httpbin-drift.json` は書き換えていないので、`size` はまだ `\"Extra Large\"` のままです。このまま実行するとまた4手目で止まります。今後も Large で回すなら `vars.size` を `\"Large\"` に直してください。",
+    "run1_elapsed_ms": 4817,
+    "run2_elapsed_ms": 225
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "order": [
+        "agent-browser",
+        "agent-browser-decisions"
+      ],
+      "runs": {
+        "agent-browser": {
+          "turn1": {
+            "returncode": 0,
+            "wall_ms": 20509,
+            "duration_ms": 18539,
+            "num_turns": 6,
+            "total_cost_usd": 0.3426736000000001,
+            "is_error": false,
+            "session_id": "dd063272-adca-49fa-ae1b-109f28b4aa17",
+            "leaked_sessions_closed": [],
+            "result_preview": "フォームへの入力と確認が終わり、ブラウザセッションも閉じました。Submit order は押していないので、注文は送信されていません。\n\n7項目の値は、DOM の値とアクセシビリティツリーのスナップショットの両方で確かめ、どちらも依頼どおりでした。確認時点の URL は `https://httpbin.org/forms/post` のままでした。\n\n| 項目 | フォームの値 |\n|---|---|\n| Customer name | Taro Yamada |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com |\n| S",
+            "stderr_preview": ""
+          },
+          "turn2": {
+            "returncode": 0,
+            "wall_ms": 16081,
+            "duration_ms": 13993,
+            "num_turns": 4,
+            "total_cost_usd": 0.42655480000000007,
+            "is_error": false,
+            "session_id": "dd063272-adca-49fa-ae1b-109f28b4aa17",
+            "leaked_sessions_closed": [],
+            "result_preview": "新しい値でフォームに入力して確認し、ブラウザセッションを閉じました。今回も Submit order は押していないので、注文は送信されていません。\n\n7項目の値は、DOM の値とアクセシビリティツリーのスナップショットの両方で確かめ、どちらも依頼どおりでした。確認時点の URL は `https://httpbin.org/forms/post` のままでした。\n\n| 項目 | フォームの値 |\n|---|---|\n| Customer name | Hanako Sato |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com",
+            "stderr_preview": "",
+            "incremental_cost_usd": 0.083881
+          }
+        },
+        "agent-browser-decisions": {
+          "turn1": {
+            "returncode": 0,
+            "wall_ms": 20309,
+            "duration_ms": 18368,
+            "num_turns": 3,
+            "total_cost_usd": 0.319352,
+            "is_error": false,
+            "session_id": "798bc641-00ee-4c90-9fec-96ba9eabe51c",
+            "leaked_sessions_closed": [],
+            "result_preview": "7項目すべてを入力し、フォームへの反映を確認しました。Submit order は押していません。確認後、ブラウザセッション `abd-37673` は閉じています。\n\n| 項目 | 入力した値 |\n| --- | --- |\n| Customer name | Taro Yamada |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com |\n| Size | Medium |\n| Toppings | Bacon, Extra Cheese |\n| Delivery instructions | Leave at front ",
+            "stderr_preview": ""
+          },
+          "turn2": {
+            "returncode": 0,
+            "wall_ms": 10446,
+            "duration_ms": 8223,
+            "num_turns": 2,
+            "total_cost_usd": 0.3620194,
+            "is_error": false,
+            "session_id": "798bc641-00ee-4c90-9fec-96ba9eabe51c",
+            "leaked_sessions_closed": [],
+            "result_preview": "新しい値で7項目すべてを入力し、フォームへの反映を確認しました。Submit order は押していません。ブラウザセッションも閉じています。\n\n| 項目 | 入力した値 |\n| --- | --- |\n| Customer name | Hanako Sato |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com |\n| Size | Large |\n| Toppings | Onion, Mushroom |\n| Delivery instructions | Leave at front door |\n\n- **確認の結果",
+            "stderr_preview": "",
+            "incremental_cost_usd": 0.042667
+          }
+        }
+      }
+    },
+    {
+      "round": 2,
+      "order": [
+        "agent-browser-decisions",
+        "agent-browser"
+      ],
+      "runs": {
+        "agent-browser-decisions": {
+          "turn1": {
+            "returncode": 0,
+            "wall_ms": 19833,
+            "duration_ms": 17915,
+            "num_turns": 3,
+            "total_cost_usd": 0.07925460000000001,
+            "is_error": false,
+            "session_id": "36d9d1b6-029a-436c-bda1-f0183a1f978d",
+            "leaked_sessions_closed": [],
+            "result_preview": "7項目すべてを入力し、フォームに値が入っていることを確認しました。ブラウザセッションも閉じています。Submit order は押していません。\n\n| 項目 | 入力値 |\n| --- | --- |\n| Customer name | Taro Yamada |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com |\n| Size | Medium |\n| Toppings | Bacon, Extra Cheese |\n| Delivery instructions | Leave at front door |\n\n**確認の",
+            "stderr_preview": ""
+          },
+          "turn2": {
+            "returncode": 0,
+            "wall_ms": 10822,
+            "duration_ms": 8631,
+            "num_turns": 2,
+            "total_cost_usd": 0.12330700000000001,
+            "is_error": false,
+            "session_id": "36d9d1b6-029a-436c-bda1-f0183a1f978d",
+            "leaked_sessions_closed": [],
+            "result_preview": "新しい値で7項目すべてを入力し、フォームに値が入っていることを確認しました。ブラウザセッションも閉じています。Submit order は押していません。\n\n| 項目 | 入力値 |\n| --- | --- |\n| Customer name | Hanako Sato |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com |\n| Size | Large |\n| Toppings | Onion, Mushroom |\n| Delivery instructions | Leave at front door |\n\n- **実",
+            "stderr_preview": "",
+            "incremental_cost_usd": 0.044052
+          }
+        },
+        "agent-browser": {
+          "turn1": {
+            "returncode": 0,
+            "wall_ms": 20162,
+            "duration_ms": 18219,
+            "num_turns": 6,
+            "total_cost_usd": 0.1338472,
+            "is_error": false,
+            "session_id": "974720a8-80f7-4e89-a696-d7c5f73910b6",
+            "leaked_sessions_closed": [],
+            "result_preview": "7項目すべてがフォームに入ったことを確認しました。Submit order は押していません。\n\n**確認方法**：入力後に2つの方法で読み取り、どちらも依頼どおりの値でした。\n- アクセシビリティツリーのスナップショット\n- DOM の `value` / `checked` を JS で直接読み出し\n\n| 項目 | 反映された値 |\n|---|---|\n| Customer name | Taro Yamada |\n| Telephone | 090-1234-5678 |\n| E-mail | taro@example.com |\n| Size | Medium（`medium`）だけ選",
+            "stderr_preview": ""
+          },
+          "turn2": {
+            "returncode": 0,
+            "wall_ms": 28304,
+            "duration_ms": 26442,
+            "num_turns": 4,
+            "total_cost_usd": 0.2958728,
+            "is_error": false,
+            "session_id": "974720a8-80f7-4e89-a696-d7c5f73910b6",
+            "leaked_sessions_closed": [],
+            "result_preview": "7項目すべてがフォームに入ったことを確認しました。Submit order は押していません。\n\n今回は値だけを入れ替えて何度も回せるよう、手順書（plan JSON）を作って実行しました。実行は終了コード 0 で、`ok: true`・`verified: true`・`session_open: false` が返りました。\n\n**確認方法**：入力後にフォームの値を DOM から直接読み出し、指定の値と一致することを照合しました。\n- Customer name：Hanako Sato\n- Telephone：090-1234-5678\n- E-mail：taro@example.com",
+            "stderr_preview": "",
+            "incremental_cost_usd": 0.162026
+          }
+        }
+      }
+    },
+    {
+      "round": 3,
+      "order": [
+        "agent-browser",
+        "agent-browser-decisions"
+      ],
+      "runs": {
+        "agent-browser": {
+          "turn1": {
+            "returncode": 0,
+            "wall_ms": 18471,
+            "duration_ms": 16482,
+            "num_turns": 5,
+            "total_cost_usd": 0.12243219999999999,
+            "is_error": false,
+            "session_id": "b4cfb00c-dcab-43a2-ac05-be198b757692",
+            "leaked_sessions_closed": [],
+            "result_preview": "7項目すべてを入力し、フォームに反映されたことを確認しました。Submit order は押していません。そのあとブラウザセッションを閉じています。\n\n入力後のページから各項目の値を読み出した結果は次のとおりです。\n\n| 項目 | 読み出した値 |\n|---|---|\n| Customer name | `Taro Yamada` |\n| Telephone | `090-1234-5678` |\n| E-mail | `taro@example.com` |\n| Size | `medium`（3つの中で選ばれているのはこれだけ） |\n| Toppings | `bacon`, `chees",
+            "stderr_preview": ""
+          },
+          "turn2": {
+            "returncode": 0,
+            "wall_ms": 15037,
+            "duration_ms": 12820,
+            "num_turns": 3,
+            "total_cost_usd": 0.1877254,
+            "is_error": false,
+            "session_id": "b4cfb00c-dcab-43a2-ac05-be198b757692",
+            "leaked_sessions_closed": [],
+            "result_preview": "7項目すべてを新しい値で入力し、フォームに反映されたことを確認しました。Submit order は押していません。そのあとブラウザセッションを閉じています。\n\n前回と同じく、入力後のページから各項目の値を読み出しました。\n\n| 項目 | 読み出した値 |\n|---|---|\n| Customer name | `Hanako Sato` |\n| Telephone | `090-1234-5678` |\n| E-mail | `taro@example.com` |\n| Size | `large`（3つの中で選ばれているのはこれだけ） |\n| Toppings | `onion`, `mu",
+            "stderr_preview": "",
+            "incremental_cost_usd": 0.065293
+          }
+        },
+        "agent-browser-decisions": {
+          "turn1": {
+            "returncode": 0,
+            "wall_ms": 19858,
+            "duration_ms": 17905,
+            "num_turns": 3,
+            "total_cost_usd": 0.08184539999999998,
+            "is_error": false,
+            "session_id": "eed76b86-1f43-4a30-9e44-0d030d91a4fa",
+            "leaked_sessions_closed": [],
+            "result_preview": "全7項目を入力し、フォームに反映されていることを確認しました。ブラウザセッションも閉じています。Submit order は押していません。\n\n- 実行結果は `ok: true`、`verified: true`、`session_open: false` でした。\n- 確認では、各欄から値を読み戻して指定どおりか照合しました。\n  - Customer name: Taro Yamada\n  - Telephone: 090-1234-5678\n  - E-mail: taro@example.com\n  - Size: Medium（選ばれているのはこれだけ）\n  - Toppings:",
+            "stderr_preview": ""
+          },
+          "turn2": {
+            "returncode": 0,
+            "wall_ms": 9653,
+            "duration_ms": 7475,
+            "num_turns": 2,
+            "total_cost_usd": 0.12400859999999998,
+            "is_error": false,
+            "session_id": "eed76b86-1f43-4a30-9e44-0d030d91a4fa",
+            "leaked_sessions_closed": [],
+            "result_preview": "新しい値で全7項目を入力し、フォームに反映されていることを確認しました。ブラウザセッションも閉じています。Submit order は押していません。\n\n- 実行結果は `ok: true`、`verified: true`、`session_open: false` でした。今回は新しいセッションを開いて実行し、終わったら自動で閉じています。\n- 前回と同じく、各欄から値を読み戻して照合しました。\n  - Customer name: Hanako Sato\n  - Telephone: 090-1234-5678\n  - E-mail: taro@example.com\n  - Size:",
+            "stderr_preview": "",
+            "incremental_cost_usd": 0.042163
+          }
+        }
+      }
+    }
+  ],
+  "summary": {
+    "agent-browser.turn1": {
+      "n": 3,
+      "median_s": 20.16,
+      "min_s": 18.47,
+      "max_s": 20.51,
+      "median_cost_usd": 0.1338,
+      "costs_usd": [
+        0.3427,
+        0.1338,
+        0.1224
+      ],
+      "median_turns": 6,
+      "turns": [
+        6,
+        6,
+        5
+      ]
+    },
+    "agent-browser.turn2": {
+      "n": 3,
+      "median_s": 16.08,
+      "min_s": 15.04,
+      "max_s": 28.3,
+      "median_cost_usd": 0.0839,
+      "costs_usd": [
+        0.0839,
+        0.162,
+        0.0653
+      ],
+      "median_turns": 4,
+      "turns": [
+        4,
+        4,
+        3
+      ]
+    },
+    "agent-browser-decisions.turn1": {
+      "n": 3,
+      "median_s": 19.86,
+      "min_s": 19.83,
+      "max_s": 20.31,
+      "median_cost_usd": 0.0818,
+      "costs_usd": [
+        0.3194,
+        0.0793,
+        0.0818
+      ],
+      "median_turns": 3,
+      "turns": [
+        3,
+        3,
+        3
+      ]
+    },
+    "agent-browser-decisions.turn2": {
+      "n": 3,
+      "median_s": 10.45,
+      "min_s": 9.65,
+      "max_s": 10.82,
+      "median_cost_usd": 0.0427,
+      "costs_usd": [
+        0.0427,
+        0.0441,
+        0.0422
+      ],
+      "median_turns": 2,
+      "turns": [
+        2,
+        2,
+        2
+      ]
+    }
+  }
+}
