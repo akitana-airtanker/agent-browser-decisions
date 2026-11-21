@@ -101,7 +101,7 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 - `steps` (required): non-empty list of step objects.
 - `url`: initial URL to open before step 1 (required when `reset: true`; omit to continue from the current page in `--session`).
 - `goal`: context string passed to Tier 2.
-- `reset`: `true` launches a fresh isolated session with Chrome's password manager disabled (closed on success or interrupt; kept open on failure for takeover). Cannot combine with `--session`.
+- `reset`: `true` launches a fresh isolated session with Chrome's password manager disabled (closed on success or interrupt unless `--keep-open` is passed; kept open on failure for takeover). When reusing an existing `--session`, pass `--no-open` (keep current page) or `--reload` (reload `url` inside the warm Chrome without relaunching).
 - `verify`: JavaScript expression polled for up to `verify_timeout_s` (default `10`). JSON-serialisable truthy results (including `{}` and `[]`) or `{"passed": true}` pass; non-JSON output (`undefined`, `NaN`, syntax errors), non-zero exits, and `{"passed": false}` fail.
 
 ## Output & takeover
@@ -244,3 +244,8 @@ uv run pytest -v
 ## License
 
 MIT
+
+## Warm-session reuse & verification
+
+- **Warm-session reuse**: Pass `--keep-open` on the first run to keep the browser alive, then reuse it with `--session <id> --reload --var ...` (resets page DOM without Chrome cold-start, ~0.38 s/run on 7-field forms) or `--no-open` (same page, ~0.26 s/run), and pass `--close` on the final run.
+- **Optimization soundness**: Contiguous Tier-1 form writes fuse into `agent-browser batch --bail` (with read-only tail `verify` and `get url`), and dynamic steps forward post-effect snapshots across steps while preserving the 2-consecutive-snapshot stability invariant. `tests/test_formal_model.py` verifies the runner state machine with a Kripke/CTL model checker (safety, termination via Tarjan non-trivial SCC, deadlock freedom) and Hypothesis-driven forward/backward simulation checks against conservative step-by-step execution.

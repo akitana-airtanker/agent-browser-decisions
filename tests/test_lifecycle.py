@@ -987,3 +987,59 @@ def test_close_on_success_keeps_session_open_on_failure_and_falls_back_from_part
     assert fb.closed is False
     assert res["steps"][0].get("batched") is True
     assert res["steps"][1].get("batched") is None
+
+
+def test_keep_open_and_reload_warm_session_lifecycle(tmp_path: Path) -> None:
+    snap = '- textbox "Customer name:" [ref=e1]\n- textbox "Telephone:" [ref=e2]'
+    fb = BatchFakeBrowser(snap)
+    prof_dir = tmp_path / "warm-prof"
+    prof_dir.mkdir()
+    runner = PlanRunner(
+        browser_factory=lambda *a, **kw: fb,
+        profile_factory=lambda: str(prof_dir),
+        settle_s=0.05,
+        poll_s=0.001,
+    )
+    plan = {
+        "url": "https://example.com/form",
+        "reset": True,
+        "vars": {"name": "Taro", "tel": "090"},
+        "steps": [
+            {"action": "fill", "target": "Customer name:", "value": "{{name}}"},
+            {"action": "fill", "target": "Telephone:", "value": "{{tel}}"},
+        ],
+    }
+    # Run 1: --keep-open leaves auto-created session warm & profile alive on disk
+    r1 = runner.run_plan_file(plan, keep_open=True)
+    assert r1["ok"] is True
+    assert r1["session_open"] is True
+    assert fb.closed is False
+    assert prof_dir.exists()
+
+    # Run 2: --session <id> --reload --close navigates in warm session and closes on success
+    fb2 = BatchFakeBrowser(snap)
+    runner2 = PlanRunner(browser_factory=lambda *a, **kw: fb2, settle_s=0.05, poll_s=0.001)
+    r2 = runner2.run_plan_file(
+        plan,
+        session=r1["session"],
+        reload_page=True,
+        close_on_success=True,
+        vars={"name": "Hanako"},
+    )
+    assert r2["ok"] is True
+    assert r2["session_open"] is False
+    assert fb2.opened == ["https://example.com/form"]
+    assert fb2.closed is True
+
+
+def test_cli_and_runner_do_not_eagerly_import_httpx() -> None:
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; "
+        "import agent_browser_decisions.cli, agent_browser_decisions.runner; "
+        "assert 'httpx' not in sys.modules, 'httpx was eagerly imported'"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert res.returncode == 0, res.stderr

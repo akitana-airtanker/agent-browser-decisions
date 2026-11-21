@@ -675,3 +675,13 @@ def test_validate_run_options_no_open_and_close_rules() -> None:
     assert validate_run_options(plan, session=None, close_on_success=True)
     assert validate_run_options(plan, session="s1", no_open=False)  # reset=true + session without no_open rejected
     assert validate_run_options(plan, session="s1", no_open=True, close_on_success=True) == []
+
+
+def test_validate_run_options_keep_open_and_reload_rules() -> None:
+    plan = {"url": "https://example.com", "reset": True, "steps": [{"action": "click", "target": "Go"}]}
+    assert validate_run_options(plan, keep_open=True) == []
+    assert validate_run_options(plan, session="s1", reload_page=True) == []
+    assert validate_run_options(plan, session="s1", reload_page=True, close_on_success=True) == []
+    assert validate_run_options(plan, session=None, reload_page=True)
+    assert validate_run_options(plan, session="s1", no_open=True, reload_page=True)
+    assert validate_run_options(plan, session="s1", keep_open=True, close_on_success=True)

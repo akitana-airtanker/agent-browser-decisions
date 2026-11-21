@@ -167,6 +167,16 @@ def main(argv: list[str] | None = None) -> int:
         help="reuse an already-open --session without re-navigating to url (ignores reset=true)",
     )
     run.add_argument(
+        "--reload",
+        action="store_true",
+        help="reload plan url inside an already-open --session without relaunching Chrome (overrides reset=true)",
+    )
+    run.add_argument(
+        "--keep-open",
+        action="store_true",
+        help="keep an auto-created session open on success for fast warm-session reuse via --session",
+    )
+    run.add_argument(
         "--close",
         action="store_true",
         help="close --session automatically on success (leaves it open on failure for Tier 3 handoff)",
@@ -238,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
         from_step=args.from_step,
         vars=cli_vars or None,
         no_open=args.no_open,
+        reload_page=args.reload,
+        keep_open=args.keep_open,
         close_on_success=args.close,
         browser_timeout_s=args.timeout,
         api_timeout_s=args.api_timeout,

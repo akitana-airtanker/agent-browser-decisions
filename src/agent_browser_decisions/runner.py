@@ -8,16 +8,16 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import httpx
-
 from agent_browser_decisions.browser import AgentBrowser, quiet_profile
 from agent_browser_decisions.core import (
     DEFAULT_PROVIDER,
+    append_batch_tail,
     apply_plan_vars,
     build_batch_commands,
     chosen_ref,
@@ -26,6 +26,7 @@ from agent_browser_decisions.core import (
     decision_request,
     document,
     evaluate_verify_output,
+    extract_batch_tail,
     hash_route,
     match_label,
     redact_text,
@@ -116,9 +117,11 @@ class PlanRunner:
         goal: str,
         mode: str,
         exclude: set[str],
+        *,
+        initial_page: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
         deadline = time.perf_counter() + self.settle_s
-        previous: str | None = None
+        previous: str | None = initial_page["raw"] if initial_page is not None else None
         while True:
             page = browser.observe()
             # Two consecutive identical snapshots mean the page has settled and refs are not shifting.
@@ -160,10 +163,19 @@ class PlanRunner:
             return None, 3, {"reason": f"decision unseen ref {ref}"}, page
         return None, 3, {"reason": f"decision {info}"}, page
 
-    def _changed_since(self, browser: AgentBrowser, page: dict[str, Any]) -> Callable[[], bool]:
+    def _changed_since(
+        self,
+        browser: AgentBrowser,
+        page: dict[str, Any],
+        observed_out: list[dict[str, Any]] | None = None,
+    ) -> Callable[[], bool]:
         def check() -> bool:
             now = browser.observe(category="check")
-            return now["raw"] != page["raw"] or now["url"] != page["url"]
+            if now["raw"] != page["raw"] or now["url"] != page["url"]:
+                if observed_out is not None:
+                    observed_out.append(now)
+                return True
+            return False
 
         return check
 
@@ -175,7 +187,7 @@ class PlanRunner:
         page: dict[str, Any],
         *,
         allow_keyboard: bool = True,
-    ) -> str:
+    ) -> tuple[str, dict[str, Any] | None]:
         action, ref = step["action"], f"@{element['ref']}"
         if action == "fill":
             expected = step["value"]
@@ -184,16 +196,16 @@ class PlanRunner:
                 got = browser.call("get", "value", ref, check=False, category="check")
                 return same_field_value(got, expected)
 
-            return "ok" if poll(value_matches, min(0.5, self.effect_wait_s), self.poll_s) else "no_effect"
+            return ("ok" if poll(value_matches, min(0.5, self.effect_wait_s), self.poll_s) else "no_effect"), None
         if action == "check":
             checked = poll(
                 lambda: browser.call("is", "checked", ref, check=False, category="check").strip() == "true",
                 min(0.5, self.effect_wait_s),
                 self.poll_s,
             )
-            return "ok" if checked else "no_effect"
+            return ("ok" if checked else "no_effect"), None
         if action == "select":
-            return "ok"
+            return "ok", None
         if step.get("expect") == "navigation" or (element["role"] == "link" and step.get("navigates", True)):
             whole = element["role"] == "link" and hash_route(
                 browser.call("get", "attr", ref, "href", check=False, category="check")
@@ -204,19 +216,26 @@ class PlanRunner:
                 return now != page["url"] if whole else document(now) != document(page["url"])
 
             if poll(moved, 1.5, 0.1):
-                return "ok"
+                return "ok", None
             if allow_keyboard and element["role"] == "link":
                 # A wrapped inline link can have its box centre between lines; keyboard activation is geometry-free.
                 browser.call("focus", ref, check=False, category="act")
                 browser.call("press", "Enter", check=False, category="act")
                 if poll(moved, 3.0, 0.1):
-                    return "ok_keyboard"
-            return "wrong_target"
-        return "ok" if poll(self._changed_since(browser, page), self.effect_wait_s, self.poll_s) else "no_effect"
+                    return "ok_keyboard", None
+            return "wrong_target", None
+        observed: list[dict[str, Any]] = []
+        changed = poll(self._changed_since(browser, page, observed), self.effect_wait_s, self.poll_s)
+        return ("ok" if changed else "no_effect"), (observed[-1] if observed else None)
 
-    def _wait_stable_page(self, browser: AgentBrowser) -> dict[str, Any]:
+    def _wait_stable_page(
+        self,
+        browser: AgentBrowser,
+        *,
+        initial_page: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         deadline = time.perf_counter() + self.settle_s
-        previous: str | None = None
+        previous: str | None = initial_page["raw"] if initial_page is not None else None
         while True:
             page = browser.observe()
             if (previous is not None and page["raw"] == previous) or time.perf_counter() >= deadline:
@@ -231,30 +250,53 @@ class PlanRunner:
         start_index: int,
         remaining_steps: list[dict[str, Any]],
         log: list[dict[str, Any]],
-    ) -> int:
+        *,
+        verify_expr: str | None = None,
+        initial_page: dict[str, Any] | None = None,
+    ) -> tuple[int, tuple[bool, Any] | None, str | None]:
         if len(remaining_steps) < 2 or not hasattr(browser, "batch"):
-            return 0
+            return 0, None, None
         if (
             remaining_steps[0].get("action") not in ("fill", "check", "select")
             or remaining_steps[1].get("action") not in ("fill", "check", "select")
             or remaining_steps[0].get("decide") is True
             or remaining_steps[1].get("decide") is True
         ):
-            return 0
+            return 0, None, None
         started = time.perf_counter()
         metrics.reset()
-        page = self._wait_stable_page(browser)
+        page = self._wait_stable_page(browser, initial_page=initial_page)
         selected = select_tier1_batch(remaining_steps, page["elements"])
         if len(selected) < 2:
-            return 0
+            return 0, None, None
         commands, check_map = build_batch_commands(selected)
+        covers_tail = len(selected) == len(remaining_steps)
+        verify_idx: int | None = None
+        url_idx: int | None = None
+        if covers_tail:
+            commands, verify_idx, url_idx = append_batch_tail(
+                commands,
+                verify_expr=verify_expr,
+                include_url=True,
+            )
         try:
             rows = browser.batch(commands, bail=True, category="act")
         except (RuntimeError, subprocess.TimeoutExpired, OSError):
-            return 0
+            return 0, None, None
         verified_count = verify_batch_results(selected, rows, check_map)
         if verified_count <= 0:
-            return 0
+            return 0, None, None
+
+        fused_verified: tuple[bool, Any] | None = None
+        fused_url: str | None = None
+        # Backward simulation guard: only consume fused tail outputs if every batched step & effect check passed.
+        if covers_tail and verified_count == len(selected):
+            v_pass, v_val, tail_url = extract_batch_tail(rows, verify_idx, url_idx)
+            if v_pass is True:
+                fused_verified = (True, v_val)
+            if tail_url:
+                fused_url = tail_url
+
         total_ms = round((time.perf_counter() - started) * 1000)
         per_step_ms = max(1, round(total_ms / verified_count))
         for i in range(verified_count):
@@ -274,7 +316,7 @@ class PlanRunner:
                     "metrics": metrics.summary() if i == 0 else {},
                 }
             )
-        return verified_count
+        return verified_count, fused_verified, fused_url
 
     def _run_step(
         self,
@@ -287,7 +329,9 @@ class PlanRunner:
         mode: str,
         secrets: set[str],
         log: list[dict[str, Any]],
-    ) -> bool:
+        *,
+        initial_page: dict[str, Any] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None]:
         started = time.perf_counter()
         metrics.reset()
         excluded: set[str] = set()
@@ -296,9 +340,11 @@ class PlanRunner:
         once = bool(step.get("once"))
 
         if step["action"] == "press":
-            page = browser.observe()
+            page = initial_page if initial_page is not None else browser.observe()
             browser.call("press", step["value"], category="act")
-            outcome = "ok" if poll(self._changed_since(browser, page), self.effect_wait_s, self.poll_s) else "no_effect"
+            observed: list[dict[str, Any]] = []
+            changed = poll(self._changed_since(browser, page, observed), self.effect_wait_s, self.poll_s)
+            outcome = "ok" if changed else "no_effect"
             step_ok = outcome != "no_effect"
             log.append(
                 {
@@ -312,12 +358,17 @@ class PlanRunner:
                     "metrics": metrics.summary(),
                 }
             )
-            return step_ok
+            return step_ok, (observed[-1] if observed else None)
 
         last_attempt: dict[str, Any] = {}
+        next_page: dict[str, Any] | None = None
+        seed_page = initial_page
         while True:
             step_mode = "decide" if step.get("decide") else mode
-            element, tier, info, page = self._resolve(browser, decisions, step, goal, step_mode, excluded)
+            element, tier, info, page = self._resolve(
+                browser, decisions, step, goal, step_mode, excluded, initial_page=seed_page
+            )
+            seed_page = None
             tiers.append(tier)
             entry: dict[str, Any] = {
                 "step": index,
@@ -339,7 +390,7 @@ class PlanRunner:
                         "metrics": metrics.summary(),
                     }
                 )
-                return False
+                return False, None
             try:
                 browser.call(*command_for(step, element["ref"]), category="act")
             except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
@@ -353,9 +404,9 @@ class PlanRunner:
                         "metrics": metrics.summary(),
                     }
                 )
-                return False
+                return False, None
 
-            outcome = self._effect(browser, step, element, page, allow_keyboard=not once)
+            outcome, next_page = self._effect(browser, step, element, page, allow_keyboard=not once)
             last_attempt = {"chose": element["name"][:80], "effect": outcome}
             if once:
                 break
@@ -381,7 +432,7 @@ class PlanRunner:
             "metrics": metrics.summary(),
         }
         log.append(entry)
-        return step_ok
+        return step_ok, next_page
 
     def _verify_page(
         self, browser: AgentBrowser, expression: str, timeout_s: float, secrets: set[str]
@@ -406,6 +457,8 @@ class PlanRunner:
         from_step: int = 1,
         vars: Mapping[str, str] | None = None,
         no_open: bool = False,
+        reload_page: bool = False,
+        keep_open: bool = False,
         close_on_success: bool = False,
         environ: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -426,6 +479,8 @@ class PlanRunner:
                 from_step=from_step,
                 provider=effective_provider,
                 no_open=no_open,
+                reload_page=reload_page,
+                keep_open=keep_open,
                 close_on_success=close_on_success,
             )
         )
@@ -498,6 +553,7 @@ class PlanRunner:
         error: str | None = None
         verified: bool | None = None
         verify_value: Any = None
+        fused_url: str | None = None
         closed = False
 
         try:
@@ -524,31 +580,61 @@ class PlanRunner:
                             "steps": [],
                         }
 
+                verify_expr = wrap_verify_with_vars(plan["verify"], merged_vars) if plan.get("verify") else None
                 completed = True
+                carried_page: dict[str, Any] | None = None
+                fused_verified: tuple[bool, Any] | None = None
+                fused_url: str | None = None
                 offset = 0
                 while offset < len(resolved_steps):
                     index = from_step + offset
                     if mode == "label":
-                        batched = self._try_tier1_batch(browser, metrics, index, resolved_steps[offset:], log)
+                        batched, batch_verified, batch_url = self._try_tier1_batch(
+                            browser,
+                            metrics,
+                            index,
+                            resolved_steps[offset:],
+                            log,
+                            verify_expr=verify_expr,
+                            initial_page=carried_page,
+                        )
                         if batched > 0:
+                            carried_page = None
+                            fused_verified = batch_verified
+                            fused_url = batch_url
                             offset += batched
                             continue
                     step = resolved_steps[offset]
+                    fused_verified = None
+                    fused_url = None
                     try:
-                        if not self._run_step(
-                            browser, decisions, metrics, index, step, plan.get("goal", ""), mode, secrets, log
-                        ):
+                        step_ok, carried_page = self._run_step(
+                            browser,
+                            decisions,
+                            metrics,
+                            index,
+                            step,
+                            plan.get("goal", ""),
+                            mode,
+                            secrets,
+                            log,
+                            initial_page=carried_page,
+                        )
+                        if not step_ok:
                             completed = False
                             break
-                    except (
-                        MissingKey,
-                        DecisionsError,
-                        RuntimeError,
-                        httpx.HTTPError,
-                        json.JSONDecodeError,
-                        subprocess.TimeoutExpired,
-                        OSError,
-                    ) as failure:
+                    except Exception as failure:
+                        httpx_mod = sys.modules.get("httpx")
+                        expected_errors: tuple[type[BaseException], ...] = (
+                            MissingKey,
+                            DecisionsError,
+                            RuntimeError,
+                            json.JSONDecodeError,
+                            subprocess.TimeoutExpired,
+                            OSError,
+                        ) + ((httpx_mod.HTTPError,) if httpx_mod is not None else ())
+                        if not isinstance(failure, expected_errors):
+                            raise
                         log.append(
                             {
                                 "step": index,
@@ -561,11 +647,14 @@ class PlanRunner:
                         break
                     offset += 1
 
-                if completed and plan.get("verify"):
-                    verify_expr = wrap_verify_with_vars(plan["verify"], merged_vars)
-                    verified, verify_value = self._verify_page(
-                        browser, verify_expr, plan.get("verify_timeout_s", 10), secrets
-                    )
+                if completed and verify_expr:
+                    if fused_verified is not None:
+                        verified, verify_value = fused_verified
+                    else:
+                        fused_url = None
+                        verified, verify_value = self._verify_page(
+                            browser, verify_expr, plan.get("verify_timeout_s", 10), secrets
+                        )
         except KeyboardInterrupt:
             interrupted = True
             completed = False
@@ -579,13 +668,18 @@ class PlanRunner:
             ok = (not interrupted) and completed and verified is not False
             url = ""
             if session_opened and not interrupted:
-                try:
-                    url = browser.current_url()
-                except (RuntimeError, subprocess.TimeoutExpired, OSError):
-                    url = ""
+                if ok and fused_url:
+                    url = fused_url
+                else:
+                    try:
+                        url = browser.current_url()
+                    except (RuntimeError, subprocess.TimeoutExpired, OSError):
+                        url = ""
 
-            # On normal success OR interrupt, close owned sessions and delete temp profiles cleanly.
-            if (ok or interrupted) and (owns_session or close_on_success) and session_opened:
+            # Close on success unless --keep-open was requested; always close owned sessions on interrupt.
+            should_close_on_ok = (owns_session and not keep_open) or close_on_success
+            should_close_on_interrupt = owns_session or close_on_success
+            if ((ok and should_close_on_ok) or (interrupted and should_close_on_interrupt)) and session_opened:
                 with contextlib.suppress(RuntimeError, subprocess.TimeoutExpired, OSError):
                     browser.close()
                 closed = True
@@ -636,6 +730,8 @@ def run_plan_file(
     *,
     vars: Mapping[str, str] | None = None,
     no_open: bool = False,
+    reload_page: bool = False,
+    keep_open: bool = False,
     close_on_success: bool = False,
     browser_timeout_s: float = 60.0,
     api_timeout_s: float = 30.0,
@@ -658,6 +754,8 @@ def run_plan_file(
         from_step=from_step,
         vars=vars,
         no_open=no_open,
+        reload_page=reload_page,
+        keep_open=keep_open,
         close_on_success=close_on_success,
         environ=environ,
     )

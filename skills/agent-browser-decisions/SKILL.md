@@ -100,7 +100,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   - 支払い・投稿・申し込み・削除確定など取り消せない送信は手順書に入れず、直前で止めて直接操作で1回だけ押す。それ以外でも応答が遅く二重実行を避けたい手順には `"once": true` を付ける。
   - `select` の反映確認は未検査（常に `ok`）なので、選択結果が重要なら `verify` で `.value` や表示テキストを検査する。
 - **`verify` の書き方**: `verify` には JSON 化できる JS 式を書く。真になるプリミティブ、`{}`/`[]`、または `{"passed": true}` が合格。`undefined`・`NaN`・構文エラー・非ゼロ終了・`{"passed": false}` は不合格。`verify` を省くと `verified: null` のまま全手順完了で `ok: true` になるため、最終状態を保証したいときは必ず書く。入力欄は `innerText` ではなく `.value` で調べる。
-- **`reset` と `--session` / `--no-open` / `--close`**: `"reset": true` は `url` 必須で、単独実行時にパスワード管理を切った新しい独立セッションを起動し、成功時・中断時に自動で閉じる。事前確認で開いた既存セッションを再利用するときは `--session <名前> --no-open --close` を渡す（`reset: true` のままでも再遷移せず、成功時だけ自動クローズし失敗時は開いたまま残す）。
+- **`reset` と `--session` / `--no-open` / `--reload` / `--keep-open` / `--close`**: `"reset": true` は `url` 必須で、単独実行時にパスワード管理を切った新しい独立セッションを起動し、成功時・中断時に自動で閉じる。事前確認で開いた既存セッションを再利用するときは `--session <名前> --no-open --close` を渡す（`reset: true` のままでも再遷移せず、成功時だけ自動クローズし失敗時は開いたまま残す）。同じサイトを複数回連続で回すときは、初回に `--keep-open` でセッションを残し、2回目以降を `--session <名前> --reload --var ...`（フォーム初期化あり・Chrome 再起動なし）で回して最後だけ `--close` を付けると大幅に速い。
 
 ## Result, exit codes & direct takeover
 

@@ -500,6 +500,19 @@ def same_field_value(raw_stdout: str, expected: str) -> bool:
     )
 
 
+def evaluate_verify_value(value: Any) -> tuple[bool, Any]:
+    """Evaluate an already-parsed JSON result from `eval` into (passed: bool, value) (pure)."""
+    if isinstance(value, dict):
+        if "passed" in value:
+            return value["passed"] is True, value
+        return True, value
+    if isinstance(value, list):
+        return True, value
+    if isinstance(value, float) and math.isnan(value):
+        return False, value
+    return bool(value), value
+
+
 def evaluate_verify_output(stdout: str | None) -> tuple[bool, Any]:
     """Parse stdout from a zero-exit `agent-browser eval` into (passed: bool, value).
 
@@ -513,15 +526,7 @@ def evaluate_verify_output(stdout: str | None) -> tuple[bool, Any]:
         value = json.loads(text)
     except json.JSONDecodeError:
         return False, text
-    if isinstance(value, dict):
-        if "passed" in value:
-            return value["passed"] is True, value
-        return True, value
-    if isinstance(value, list):
-        return True, value
-    if isinstance(value, float) and math.isnan(value):
-        return False, value
-    return bool(value), value
+    return evaluate_verify_value(value)
 
 
 def parse_dotenv(text: str) -> dict[str, str]:
@@ -685,6 +690,8 @@ def validate_run_options(
     from_step: int = 1,
     provider: str | None = None,
     no_open: bool = False,
+    reload_page: bool = False,
+    keep_open: bool = False,
     close_on_success: bool = False,
 ) -> list[str]:
     """Runtime option checks over an already schema-valid plan (pure)."""
@@ -702,10 +709,25 @@ def validate_run_options(
         problems.append("--from-step > 1 requires --session")
     if no_open and not session:
         problems.append("--no-open requires --session")
+    if reload_page and not session:
+        problems.append("--reload requires --session")
+    if reload_page and no_open:
+        problems.append("cannot combine --reload with --no-open")
     if close_on_success and not session:
         problems.append("--close requires --session")
-    if isinstance(plan, dict) and plan.get("reset") is True and session and from_step == 1 and not no_open:
-        problems.append("cannot combine reset=true with --session (pass --no-open to reuse an open session)")
+    if keep_open and close_on_success:
+        problems.append("cannot combine --keep-open with --close")
+    if (
+        isinstance(plan, dict)
+        and plan.get("reset") is True
+        and session
+        and from_step == 1
+        and not no_open
+        and not reload_page
+    ):
+        problems.append(
+            "cannot combine reset=true with --session (pass --no-open or --reload to reuse an open session)"
+        )
     return problems
 
 
@@ -892,3 +914,58 @@ def verify_batch_results(
                 failed_at = offset
                 break
     return failed_at
+
+
+def append_batch_tail(
+    commands: list[list[str]],
+    *,
+    verify_expr: str | None = None,
+    include_url: bool = False,
+) -> tuple[list[list[str]], int | None, int | None]:
+    """Fuse read-only tail commands (`eval` verify and/or `get url`) onto a terminal Tier-1 batch (pure)."""
+    extended = list(commands)
+    verify_idx: int | None = None
+    url_idx: int | None = None
+    if verify_expr:
+        verify_idx = len(extended)
+        extended.append(["eval", verify_expr])
+    if include_url:
+        url_idx = len(extended)
+        extended.append(["get", "url"])
+    return extended, verify_idx, url_idx
+
+
+def extract_batch_tail(
+    rows: Any,
+    verify_idx: int | None,
+    url_idx: int | None,
+) -> tuple[bool | None, Any, str | None]:
+    """Extract (verify_passed, verify_value, url) from tail-fused batch rows (pure).
+
+    Only valid after all preceding batched steps and per-step checks have passed.
+    """
+    if not isinstance(rows, list):
+        return None, None, None
+    verify_passed: bool | None = None
+    verify_value: Any = None
+    url: str | None = None
+
+    if verify_idx is not None and verify_idx < len(rows):
+        row = rows[verify_idx]
+        if isinstance(row, dict) and row.get("success") is True:
+            res = row.get("result")
+            if isinstance(res, dict) and "result" in res:
+                verify_passed, verify_value = evaluate_verify_value(res["result"])
+                if isinstance(res.get("origin"), str) and res["origin"]:
+                    url = res["origin"]
+
+    if url_idx is not None and url_idx < len(rows):
+        row = rows[url_idx]
+        if isinstance(row, dict) and row.get("success") is True:
+            res = row.get("result")
+            if isinstance(res, dict) and isinstance(res.get("url"), str) and res["url"]:
+                url = res["url"]
+            elif isinstance(res, str) and res:
+                url = res
+
+    return verify_passed, verify_value, url

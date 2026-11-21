@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
+if TYPE_CHECKING:
+    import httpx
 
 from agent_browser_decisions.core import (
     PROVIDERS,
@@ -102,6 +103,8 @@ class DecisionsClient:
 
     def _http(self) -> httpx.Client:
         if self._client is None:
+            import httpx
+
             self._client = httpx.Client(http2=True, timeout=self.timeout_s)
         return self._client
 
@@ -123,6 +126,8 @@ class DecisionsClient:
         headers = {cfg.auth_header: f"{cfg.auth_prefix}{cfg.api_key}"}
         payload = request if "model" in request else {**request, "model": cfg.model}
         secrets = {cfg.api_key}
+
+        import httpx
 
         for attempt in range(self.max_retries + 1):
             started = time.perf_counter()
