@@ -36,7 +36,7 @@ uv run --project "$ABD" agent-browser-decisions doctor
 **高速実行の基本手順（初回は確認用セッションを閉じずに再利用し、2回目以降は `--var` で1行実行する）**:
 - `doctor` はエラー時だけ呼べばよい（正常時は不要）。`run` はブラウザ操作前に自動でスキーマ検証するため、通常実行前に別コマンドで `validate` を呼ぶ必要はない。
 - 事前確認で開いたセッション `$S` は**閉じずに残し**、`--session "$S" --no-open --close` でそのまま `run` する（Chrome の再起動とページ再読込を省き、成功時は自動で閉じ、失敗時だけ開いたまま残る）。
-- **フォームのすべての入力値・選択対象（テキスト欄だけでなくラジオ・チェックボックスのラベルも含む）をトップレベル `vars` と `{{KEY}}` に出し、`verify` も `VARS.*` で汎用的に照合**して `/tmp/plan.json` へ保存する（これにより2回目にどの項目が変わっても JSON を書き直さず `--var KEY=VALUE` の1行だけで再実行できる）。
+- **フォームのすべての入力値・選択対象（テキスト欄だけでなくラジオ・チェックボックスのラベルも含む）をトップレベル `vars` と `{{KEY}}` に出し、`verify` も `VARS.*` で汎用的に照合**して保存する（これにより2回目にどの項目が変わっても JSON を書き直さず `--var KEY=VALUE` の1行だけで再実行できる）。
 - `--session "$S" --no-open --close` の結果で `ok: true`・`verified: true`・`session_open: false` が返っていれば、全項目の反映確認とセッション終了まで完了済み。追加の `snapshot`・`eval`・`session list` は不要。
 
 ```bash
@@ -66,6 +66,19 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 ```
 
 機密値（ログインパスワード等）は `vars` ではなく `value_env`（例: `{"action": "fill", "target": "Password", "value_env": "APP_PASSWORD"}`）で環境変数から渡す。途中から既存セッションで再開するときは `run /tmp/plan.json --session <session> --from-step <N>` を使う。タイムアウト調整は `--timeout <秒>`（ブラウザ）/ `--api-timeout <秒>`（API）。
+
+## Plan storage, reuse & self-update
+
+手順書を毎回使い捨てにせず、スキル側で「探す → 再利用する → 壊れたら直して更新する」を一貫して管理する。
+
+- **保存先の優先順**:
+  1. 利用者がパスを指定した場合はそのパスを使う。
+  2. リポジトリ・チームで共有する定型操作はプロジェクト内の `plans/<site>-<task>.json`（既存の `plans/` または `.agent-browser/plans/` があればそこへ揃える）。
+  3. 個人用の繰り返し操作は `~/.local/share/agent-browser-decisions/plans/<site>-<task>.json`（ディレクトリが無ければ作成）。
+  4. 再利用しない1回限りの作業だけ `/tmp/plan.json` を使う。
+- **実行前の既存手順書検索**: 新規にブラウザを開いて手順書を書き始める前に、プロジェクト内の `plans/`（`.agent-browser/plans/`）と `~/.local/share/agent-browser-decisions/plans/` を探し、対象 URL／ドメインと `goal` に一致する既存手順書があればそのまま `--var` で値を差し替えて1コマンド実行する（実行前に `steps`・`verify`・`nth` の前提と、平文の機密値が含まれていないことを軽く確認する）。
+- **失敗時の復旧と保存先の自己更新**: 既存手順書が UI ラベル変化等で止まったら、`stopped_snapshot` から最小修正を入れて `--session <session> --from-step <stopped_at_step> --close` で再開し、`ok: true`・`verified: true` で完走した内容を**元の保存先ファイルへ上書き保存**して最新化する（Git 管理下なら変更点を短く報告する）。
+- **保存時の衛生ルール**: パスワード・トークン・機密の個人情報は保存手順書に平文で書かず `value_env` にする。可変値は `vars` / `{{KEY}}` / `VARS.*` に切り出して再利用できる形で残す。
 
 ## Plan schema
 
@@ -113,7 +126,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 | `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
 - **引き継ぎと反例駆動の手順書精密化（CEGAR ループ）**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っており、観測済みの場合は **`stopped_snapshot`**（停止時点の実スナップショット、機密値伏字済み）が JSON に同梱される。`stopped_at_step`・`stopped_snapshot`・`steps[]` をそのまま反例として読み、次のどちらかで続ける。
-  - 途中再開と手順書の確定（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、`agent-browser-decisions run /tmp/plan.json --session <session> --from-step <stopped_at_step> --close` で再開する（step 1 から丸ごと再実行しない）。完走した手順書を保存すれば次回から1発で回る。
+  - 途中再開と手順書の更新（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、`agent-browser-decisions run <plan.json> --session <session> --from-step <stopped_at_step> --close` で再開する（step 1 から丸ごと再実行しない）。完走した修正版を元の保存先へ上書き保存（新規なら上記保存先へ保存）すれば次回から1発で回る。
   - 直接操作: 1〜2手の例外処理なら開いたままの `--session <session>` で直接 `click @eN` … → 終わったら `agent-browser --session <session> close`。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。
