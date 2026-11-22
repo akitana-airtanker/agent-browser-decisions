@@ -1,0 +1,1313 @@
+{
+  "chrome_for_playwright": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "abd_version": "agent-browser-decisions 0.9.10",
+  "agent_browser_version": "agent-browser 0.41.1",
+  "playwright_version": "1.65.2",
+  "main": {
+    "rounds": 5,
+    "summary": {
+      "httpbin_playwright": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.36,
+        "min_ok_s": 1.3,
+        "max_ok_s": 2.51,
+        "median_all_s": 1.36
+      },
+      "httpbin_batch": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.3,
+        "min_ok_s": 1.28,
+        "max_ok_s": 1.51,
+        "median_all_s": 1.3
+      },
+      "httpbin_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.49,
+        "min_ok_s": 1.47,
+        "max_ok_s": 1.63,
+        "median_all_s": 1.49
+      },
+      "wizard_playwright": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 2.36,
+        "min_ok_s": 2.33,
+        "max_ok_s": 2.57,
+        "median_all_s": 2.36
+      },
+      "wizard_batch_wait": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.43,
+        "min_ok_s": 1.43,
+        "max_ok_s": 1.53,
+        "median_all_s": 1.43
+      },
+      "wizard_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.78,
+        "min_ok_s": 1.68,
+        "max_ok_s": 1.91,
+        "median_all_s": 1.78
+      }
+    },
+    "raw": {
+      "httpbin_playwright": [
+        {
+          "ok": true,
+          "wall_s": 2.514,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.406,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.358,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.359,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.301,
+          "error": null
+        }
+      ],
+      "httpbin_batch": [
+        {
+          "ok": true,
+          "wall_s": 1.375,
+          "session": "bench-hb-batch-41916-47044",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.279,
+          "session": "bench-hb-batch-41916-56014",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.514,
+          "session": "bench-hb-batch-41916-69011",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.278,
+          "session": "bench-hb-batch-41916-77772",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.304,
+          "session": "bench-hb-batch-41916-86309",
+          "error": null
+        }
+      ],
+      "httpbin_abd": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.634,
+          "internal_ms": 1580,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526548575-42026",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.465,
+          "internal_ms": 1418,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526557443-42577",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.466,
+          "internal_ms": 1421,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526566225-42954",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.487,
+          "internal_ms": 1434,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526579208-43890",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.561,
+          "internal_ms": 1504,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526587775-44121",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "wizard_playwright": [
+        {
+          "ok": true,
+          "wall_s": 2.569,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.356,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.357,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.333,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.399,
+          "error": null
+        }
+      ],
+      "wizard_batch_wait": [
+        {
+          "ok": true,
+          "wall_s": 1.485,
+          "session": "bench-wiz-batch-41916-52736",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.535,
+          "session": "bench-wiz-batch-41916-60275",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.434,
+          "session": "bench-wiz-batch-41916-74864",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.43,
+          "session": "bench-wiz-batch-41916-82984",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.43,
+          "session": "bench-wiz-batch-41916-90588",
+          "error": null
+        }
+      ],
+      "wizard_abd": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.684,
+          "internal_ms": 1627,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526554378-42483",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.909,
+          "internal_ms": 1852,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526561970-42648",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.859,
+          "internal_ms": 1800,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526570698-43683",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.779,
+          "internal_ms": 1724,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526584579-43957",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.753,
+          "internal_ms": 1696,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526592181-44220",
+          "session_open": false,
+          "error": null
+        }
+      ]
+    }
+  },
+  "reuse": {
+    "rounds": 5,
+    "summary": {
+      "abd_cold": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.48,
+        "min_ok_s": 1.44,
+        "max_ok_s": 1.51,
+        "median_all_s": 1.48
+      },
+      "abd_reload": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.38,
+        "min_ok_s": 0.38,
+        "max_ok_s": 0.51,
+        "median_all_s": 0.38
+      },
+      "abd_no_open": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.34,
+        "min_ok_s": 0.34,
+        "max_ok_s": 0.36,
+        "median_all_s": 0.34
+      }
+    },
+    "raw": {
+      "abd_cold": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.511,
+          "internal_ms": 1468,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526596322-44286",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.476,
+          "internal_ms": 1432,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526597835-44360",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.452,
+          "internal_ms": 1410,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526599309-44411",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.439,
+          "internal_ms": 1397,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526600759-44438",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.484,
+          "internal_ms": 1440,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526602202-44465",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "abd_reload": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.383,
+          "internal_ms": 336,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526603684-44498",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.383,
+          "internal_ms": 335,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526603684-44498",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.402,
+          "internal_ms": 351,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526603684-44498",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.381,
+          "internal_ms": 329,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526603684-44498",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.51,
+          "internal_ms": 462,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526603684-44498",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "abd_no_open": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.345,
+          "internal_ms": 294,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-41916-0",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.336,
+          "internal_ms": 286,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-41916-1",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.364,
+          "internal_ms": 313,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-41916-2",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.338,
+          "internal_ms": 287,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-41916-3",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.348,
+          "internal_ms": 298,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-41916-4",
+          "session_open": false,
+          "error": null
+        }
+      ]
+    }
+  },
+  "drift": {
+    "playwright_default_timeout3s": {
+      "ok": false,
+      "wall_s": 4.446,
+      "error": "  - waiting for get_by_role(\"radio\", name=\"Extra Large\")"
+    },
+    "batch_bail": {
+      "ok": false,
+      "wall_s": 1.134,
+      "session": "bench-drift-batch-41916-18774",
+      "error": "[{\"command\":[\"open\",\"https://httpbin.org/forms/post\"],\"error\":null,\"result\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":11677035664275010974},\"launched\":true",
+      "session_kept_custname": "\"Taro Yamada\""
+    },
+    "abd_stop": {
+      "ok": false,
+      "rc": 1,
+      "wall_s": 4.387,
+      "internal_ms": 4339,
+      "tiers": [
+        1,
+        1,
+        1,
+        3
+      ],
+      "batched_steps": 3,
+      "stopped_at_step": 4,
+      "stopped_effect": null,
+      "stopped_reason": "no label match (Tier 2 disabled; pass --decisions to enable)",
+      "session": "abd-1795526620085-45334",
+      "session_open": true,
+      "error": null
+    },
+    "abd_kept_custname": "\"Taro Yamada\"",
+    "abd_resume_from_step_4": {
+      "ok": true,
+      "rc": 0,
+      "wall_s": 0.31,
+      "internal_ms": 264,
+      "tiers": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "batched_steps": 4,
+      "stopped_at_step": null,
+      "stopped_effect": "ok",
+      "stopped_reason": null,
+      "session": "abd-1795526620085-45334",
+      "session_open": false,
+      "error": null
+    },
+    "abd_resume_from_step_5_after_direct_op": {
+      "ok": true,
+      "rc": 0,
+      "wall_s": 0.315,
+      "internal_ms": 261,
+      "tiers": [
+        1,
+        1,
+        1
+      ],
+      "batched_steps": 3,
+      "stopped_at_step": null,
+      "stopped_effect": "ok",
+      "stopped_reason": null,
+      "session": "abd-1795526624880-45421",
+      "session_open": false,
+      "error": null
+    }
+  },
+  "wizard_resume": {
+    "rounds": 5,
+    "summary": {
+      "wizard_stop_step8": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.71,
+        "min_ok_s": 1.68,
+        "max_ok_s": 2.07,
+        "median_all_s": 1.71
+      },
+      "wizard_restart_same_code_rejected": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.96,
+        "min_ok_s": 1.9,
+        "max_ok_s": 1.99,
+        "median_all_s": 1.96
+      },
+      "wizard_resume_step8": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.57,
+        "min_ok_s": 0.57,
+        "max_ok_s": 0.71,
+        "median_all_s": 0.57
+      },
+      "wizard_restart_fresh_code": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.72,
+        "min_ok_s": 1.68,
+        "max_ok_s": 1.74,
+        "median_all_s": 1.72
+      }
+    },
+    "raw": {
+      "wizard_stop_step8": [
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.88,
+          "internal_ms": 1810,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled; pass --decisions to enable)",
+          "session": "abd-1795526629842-45532",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.697,
+          "internal_ms": 1647,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled; pass --decisions to enable)",
+          "session": "abd-1795526637770-46163",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.679,
+          "internal_ms": 1635,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled; pass --decisions to enable)",
+          "session": "abd-1795526642121-46305",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.711,
+          "internal_ms": 1664,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled; pass --decisions to enable)",
+          "session": "abd-1795526650017-46558",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 2.073,
+          "internal_ms": 2001,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled; pass --decisions to enable)",
+          "session": "abd-1795526654678-46704",
+          "session_open": true,
+          "error": null
+        }
+      ],
+      "wizard_restart_same_code_rejected": [
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.945,
+          "internal_ms": 1895,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795526631704-45933",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.895,
+          "internal_ms": 1846,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795526639466-46227",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.989,
+          "internal_ms": 1942,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795526643805-46351",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.99,
+          "internal_ms": 1937,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795526651734-46602",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.96,
+          "internal_ms": 1907,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795526656732-46748",
+          "session_open": true,
+          "error": null
+        }
+      ],
+      "wizard_resume_step8": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.568,
+          "internal_ms": 527,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526629842-45532",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.566,
+          "internal_ms": 524,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526637770-46163",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.571,
+          "internal_ms": 525,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526642121-46305",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.709,
+          "internal_ms": 624,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526650017-46558",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.573,
+          "internal_ms": 530,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526654678-46704",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "wizard_restart_fresh_code": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.681,
+          "internal_ms": 1640,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526634404-46033",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.675,
+          "internal_ms": 1627,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526636090-46088",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.72,
+          "internal_ms": 1678,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526646556-46430",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.738,
+          "internal_ms": 1696,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526648277-46487",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.73,
+          "internal_ms": 1689,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795526659462-46822",
+          "session_open": false,
+          "error": null
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-"""Stateful lifecycle invariants (TLA+ parity), adapter resilience, secret redaction, and CLI tests."""
+"""Stateful lifecycle invariants (Hypothesis state machine), adapter resilience, secret redaction, and CLI tests."""
 
 from __future__ import annotations
 
@@ -48,17 +48,20 @@ class FakeBrowser(AgentBrowser):
         self.snap = '- button "Go" [ref=e1]\n- textbox "Password" [ref=e2]'
         self.closed_sessions: list[str | None] = []
         self.act_calls: list[tuple[str, ...]] = []
+        self._is_active: bool = bool(session)
 
     def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
         cmd = args[0] if args else ""
         if cmd == "--profile":
             if not self.open_ok:
                 raise RuntimeError("open failed")
+            self._is_active = True
             self.url = args[-1]
             return ""
         if cmd == "open":
             if not self.open_ok:
                 raise RuntimeError("open failed")
+            self._is_active = True
             self.url = args[-1]
             return ""
         if cmd == "snapshot":
@@ -82,8 +85,30 @@ class FakeBrowser(AgentBrowser):
         if cmd == "eval":
             return self.verify_out
         if cmd == "close":
+            self._is_active = False
             self.closed_sessions.append(self.session)
             return ""
+        if cmd == "session" and len(args) >= 2 and args[1] == "info":
+            import tempfile
+
+            sid = self.session or os.environ.get("AGENT_BROWSER_SESSION") or "default"
+            return json.dumps(
+                {
+                    "success": True,
+                    "data": {
+                        "session": sid,
+                        "active": self._is_active,
+                        "pid": 12345 if self._is_active else None,
+                        "runtime": {"backgroundPid": 12345} if self._is_active else None,
+                        "runtimeError": None,
+                        "socketDir": tempfile.gettempdir(),
+                        "namespace": None,
+                    },
+                }
+            )
+        if cmd == "session" and len(args) >= 2 and args[1] == "list":
+            sid = self.session or os.environ.get("AGENT_BROWSER_SESSION") or "default"
+            return json.dumps({"success": True, "data": {"sessions": [sid] if self._is_active else []}})
         return ""
 
     def observe(self, category: str = "observe") -> dict[str, Any]:
@@ -92,7 +117,7 @@ class FakeBrowser(AgentBrowser):
         return {"url": payload["data"]["origin"], "raw": raw, "elements": parse_snapshot(raw)}
 
 
-# ---------- Stateful TLA+ parity machine ----------
+# ---------- Stateful lifecycle invariant machine ----------
 
 
 class PlanLifecycleMachine(RuleBasedStateMachine):
@@ -1346,11 +1371,7 @@ def test_resume_redacts_prior_step_secrets_across_outputs_and_tier2() -> None:
 
         def decide(self, payload: dict[str, Any]) -> dict[str, Any]:
             self.payloads.append(payload)
-            return {
-                "decisions": [
-                    {"question_id": "element", "status": "answered", "choice": "e2", "confidence": 0.9}
-                ]
-            }
+            return {"decisions": [{"question_id": "element", "status": "answered", "choice": "e2", "confidence": 0.9}]}
 
     # Case A: resume fails on step 3 -> prior-step env + literal secrets redacted from stopped_snapshot & url
     def make_fail_browser(session: str | None = None, **kwargs: Any) -> FakeBrowser:
@@ -1405,10 +1426,7 @@ def test_resume_redacts_prior_step_secrets_across_outputs_and_tier2() -> None:
             **kwargs,
         )
         b.url = f"https://example.test/form?pin={secret_lit}"
-        b.snap = (
-            f'- button "Save {secret_lit}" [ref=e1]\n'
-            '- button "Confirm" [ref=e2]'
-        )
+        b.snap = f'- button "Save {secret_lit}" [ref=e1]\n- button "Confirm" [ref=e2]'
         return b
 
     plan_t2 = {
@@ -1507,9 +1525,7 @@ def test_stopped_snapshot_reobserves_post_batch_on_verify_failure() -> None:
                 raw = '- textbox "First" [ref=e1]\n- textbox "Last" [ref=e2]'
             return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
 
-        def batch(
-            self, commands: list[list[str]], *, bail: bool = True, category: str = "act"
-        ) -> list[dict[str, Any]]:
+        def batch(self, commands: list[list[str]], *, bail: bool = True, category: str = "act") -> list[dict[str, Any]]:
             self.filled = True
             rows: list[dict[str, Any]] = []
             for cmd in commands:
@@ -1684,9 +1700,7 @@ def test_batch_redacts_secret_in_chose() -> None:
             raw = f'- textbox "Key {secret}" [ref=e1]\n- textbox "User" [ref=e2]'
             return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
 
-        def batch(
-            self, commands: list[list[str]], *, bail: bool = True, category: str = "act"
-        ) -> list[dict[str, Any]]:
+        def batch(self, commands: list[list[str]], *, bail: bool = True, category: str = "act") -> list[dict[str, Any]]:
             rows: list[dict[str, Any]] = []
             for cmd in commands:
                 if cmd[:2] == ["get", "value"] and cmd[2] == "@e1":
@@ -1885,3 +1899,275 @@ def test_upload_expect_navigation_present_in_json_schema() -> None:
         if v.get("properties", {}).get("action", {}).get("const") == "upload"
     )
     assert upload_props.get("expect") == {"const": "navigation"}
+
+
+def test_implicit_dotenv_blocks_agent_browser_and_base_url_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "OPENAI_API_KEY=sk-from-cwd\n"
+        "DECISION_MODEL=gpt-cwd\n"
+        "AGENT_BROWSER_EXECUTABLE_PATH=/tmp/evil-bin\n"
+        "AGENT_BROWSER_ARGS=--evil\n"
+        "DECISION_BASE_URL=https://evil.example/v1\n"
+        "OPENAI_BASE_URL=https://evil.example/v1\n"
+        "CUSTOM_SECRET=leak\n",
+        encoding="utf-8",
+    )
+    for k in (
+        "OPENAI_API_KEY",
+        "DECISION_MODEL",
+        "AGENT_BROWSER_EXECUTABLE_PATH",
+        "AGENT_BROWSER_ARGS",
+        "DECISION_BASE_URL",
+        "OPENAI_BASE_URL",
+        "CUSTOM_SECRET",
+        "AGENT_BROWSER_DECISIONS_ENV_FILE",
+    ):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    loaded = load_dotenv_files()
+    assert loaded == env_file
+    assert os.environ.get("OPENAI_API_KEY") == "sk-from-cwd"
+    assert os.environ.get("DECISION_MODEL") == "gpt-cwd"
+    assert os.environ.get("AGENT_BROWSER_EXECUTABLE_PATH") is None
+    assert os.environ.get("AGENT_BROWSER_ARGS") is None
+    assert os.environ.get("DECISION_BASE_URL") is None
+    assert os.environ.get("OPENAI_BASE_URL") is None
+    assert os.environ.get("CUSTOM_SECRET") is None
+
+    # Explicit --env-file still loads all requested keys.
+    loaded_explicit = load_dotenv_files(str(env_file))
+    assert loaded_explicit == env_file
+    assert os.environ.get("DECISION_BASE_URL") == "https://evil.example/v1"
+    assert os.environ.get("CUSTOM_SECRET") == "leak"
+
+
+def test_open_failure_attempts_close_and_preserves_profile_when_close_fails(tmp_path: Path) -> None:
+    prof_dir = tmp_path / "open-fail-prof"
+    prof_dir.mkdir()
+
+    class OpenFailCloseFailBrowser(FakeBrowser):
+        def __init__(self) -> None:
+            super().__init__([], open_ok=False)
+            self.close_calls = 0
+
+        def close(self) -> bool:
+            self.close_calls += 1
+            return False
+
+    fb = OpenFailCloseFailBrowser()
+    runner = PlanRunner(
+        browser_factory=lambda *a, **kw: fb,  # type: ignore[arg-type]
+        decisions_factory=DecisionsClient,
+        profile_factory=lambda: str(prof_dir),
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res = runner.run_plan_file(
+        {
+            "url": "https://example.test/form",
+            "reset": True,
+            "steps": [{"action": "click", "target": "Go"}],
+        }
+    )
+    assert res["ok"] is False
+    assert res["stopped_at_step"] == 0
+    assert fb.close_calls == 1
+    assert res["session_open"] is True
+    assert res.get("profile") == str(prof_dir)
+    assert prof_dir.exists()
+
+
+def test_agent_browser_close_requires_same_registry_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    sock_dir = tmp_path / "sock-reg"
+    sock_dir.mkdir()
+    other_dir = tmp_path / "sock-other"
+    other_dir.mkdir()
+
+    def make_cp(stdout: str, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(["agent-browser"], returncode, stdout, stderr)
+
+    def run_close_case(
+        *,
+        close_rc: int = 0,
+        post_info: dict[str, Any] | None = None,
+        post_list: dict[str, Any] | None = None,
+    ) -> bool:
+        b = AgentBrowser(session="abd-reg-1")
+        open_info = {
+            "success": True,
+            "data": {
+                "session": "abd-reg-1",
+                "active": True,
+                "pid": 12345,
+                "runtime": {"backgroundPid": 12345},
+                "runtimeError": None,
+                "socketDir": str(sock_dir),
+                "namespace": "ns-a",
+            },
+        }
+        default_post_info = {
+            "success": True,
+            "data": {
+                "session": "abd-reg-1",
+                "active": False,
+                "pid": None,
+                "runtime": None,
+                "runtimeError": None,
+                "socketDir": str(sock_dir),
+                "namespace": "ns-a",
+            },
+        }
+        default_post_list = {"success": True, "data": {"sessions": ["other-sess"]}}
+        closed_called = False
+
+        def fake_run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+            nonlocal closed_called
+            if cmd[1:3] == ["open", "https://example.test/"]:
+                return make_cp("ok")
+            if cmd[1:] == ["close"]:
+                closed_called = True
+                return make_cp(
+                    "closed" if close_rc == 0 else "", returncode=close_rc, stderr="boom" if close_rc else ""
+                )
+            if cmd[1:] == ["session", "info", "--json"]:
+                payload = (post_info if post_info is not None else default_post_info) if closed_called else open_info
+                return make_cp(json.dumps(payload))
+            if cmd[1:] == ["session", "list", "--json"]:
+                payload = post_list if post_list is not None else default_post_list
+                return make_cp(json.dumps(payload))
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        b.open("https://example.test/")
+        return b.close()
+
+    # Happy path: close rc=0 + same readable socketDir/namespace + active=false + string list without session.
+    assert run_close_case() is True
+    # close failure fails closed even if list is empty.
+    assert run_close_case(close_rc=1) is False
+    # Empty list alone is insufficient when session info still shows active=true.
+    assert (
+        run_close_case(
+            post_info={
+                "success": True,
+                "data": {
+                    "session": "abd-reg-1",
+                    "active": True,
+                    "pid": 12345,
+                    "runtime": {"backgroundPid": 12345},
+                    "runtimeError": None,
+                    "socketDir": str(sock_dir),
+                    "namespace": "ns-a",
+                },
+            },
+            post_list={"success": True, "data": {"sessions": []}},
+        )
+        is False
+    )
+    # Registry mismatch (different socketDir or namespace) fails closed.
+    assert (
+        run_close_case(
+            post_info={
+                "success": True,
+                "data": {
+                    "session": "abd-reg-1",
+                    "active": False,
+                    "pid": None,
+                    "runtime": None,
+                    "runtimeError": None,
+                    "socketDir": str(other_dir),
+                    "namespace": "ns-a",
+                },
+            }
+        )
+        is False
+    )
+    assert (
+        run_close_case(
+            post_info={
+                "success": True,
+                "data": {
+                    "session": "abd-reg-1",
+                    "active": False,
+                    "pid": None,
+                    "runtime": None,
+                    "runtimeError": None,
+                    "socketDir": str(sock_dir),
+                    "namespace": "ns-b",
+                },
+            }
+        )
+        is False
+    )
+    # Non-existent / unreadable socketDir fails closed even if list is empty.
+    assert (
+        run_close_case(
+            post_info={
+                "success": True,
+                "data": {
+                    "session": "abd-reg-1",
+                    "active": False,
+                    "pid": None,
+                    "runtime": None,
+                    "runtimeError": None,
+                    "socketDir": str(tmp_path / "missing-reg"),
+                    "namespace": "ns-a",
+                },
+            },
+            post_list={"success": True, "data": {"sessions": []}},
+        )
+        is False
+    )
+    # Non-string entries in session list fail closed (guards against schema drift).
+    assert run_close_case(post_list={"success": True, "data": {"sessions": [{"session": "abd-reg-1"}]}}) is False
+    # Session still present in list fails closed.
+    assert run_close_case(post_list={"success": True, "data": {"sessions": ["abd-reg-1"]}}) is False
+
+
+def test_runner_preserves_profile_field_when_rmtree_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    prof_dir = tmp_path / "abd-profile-keep"
+    prof_dir.mkdir()
+    created: list[FakeBrowser] = []
+
+    def make_browser(session: str | None = None, **kw: Any) -> FakeBrowser:
+        fb = FakeBrowser(session, open_ok=True, effect_ok=True, **kw)
+        created.append(fb)
+        return fb
+
+    real_rmtree = shutil.rmtree
+
+    def fail_rmtree(path: Any, *args: Any, **kwargs: Any) -> None:
+        if str(path) == str(prof_dir):
+            raise OSError("permission denied")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", fail_rmtree)
+    runner = PlanRunner(
+        browser_factory=make_browser,
+        decisions_factory=DecisionsClient,
+        profile_factory=lambda: str(prof_dir),
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.01,
+    )
+    res = runner.run_plan_file(
+        {
+            "url": "https://example.test/",
+            "reset": True,
+            "steps": [{"action": "click", "target": "Go"}],
+        }
+    )
+    assert res["ok"] is True
+    assert res["session_open"] is False
+    assert res.get("profile") == str(prof_dir)
+    assert prof_dir.exists()

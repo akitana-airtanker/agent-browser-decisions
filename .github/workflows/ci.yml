@@ -37,7 +37,8 @@ jobs:
 
       - name: Validate example plans
         run: |
-          for plan in examples/*.json; do
+          shopt -s nullglob
+          for plan in examples/*.json examples/*/*.json; do
             uv run agent-browser-decisions validate "$plan"
           done
 

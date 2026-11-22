@@ -1,42 +1,48 @@
 """Fair same-endpoint benchmark suite for agent-browser-decisions.
 
-Compares Playwright, wait-tuned `agent-browser batch --bail`, and `agent-browser-decisions`
-using the same local Chrome binary and identical verify expressions from process launch
-through clean close.
+Compares Playwright (local Chrome via `--chrome`), wait-tuned `agent-browser batch --bail`,
+and `agent-browser-decisions` (`agent-browser`'s default headless browser) using identical
+verify expressions, measuring wall-clock time from process launch through each method's
+close step.
 
 Usage:
     uv run --with playwright python benchmarks/run_bench.py \
-        --suite all --rounds 5 --out benchmarks/results-v0.6.0.json
+        --suite all --rounds 5 --out benchmarks/results-v0.9.10.json
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import importlib.metadata
 import json
 import os
-import statistics
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-PLANS_DIR = ROOT / "plans"
-SCRIPTS_DIR = ROOT / "scripts"
+from agent_browser_decisions.browser import AgentBrowser
 
+ROOT = Path(__file__).resolve().parent.parent
+BENCH_DIR = ROOT / "benchmarks"
+PLANS_DIR = BENCH_DIR / "plans"
+SCRIPTS_DIR = BENCH_DIR / "scripts"
+WIZARD_SERVER = ROOT / "examples" / "wizard" / "server.py"
 DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-HTTPBIN_URL = "https://httpbin.org/forms/post"
-FLIGHTS_URL = "https://www.google.com/travel/flights?hl=en"
-FLIGHTS_DATE = "Tuesday, December 15, 2026"
 
+HTTPBIN_URL = "https://httpbin.org/forms/post"
 HTTPBIN_VERIFY_JS = (
     "(() => {"
     " const v = n => document.querySelector(`[name=${n}]`)?.value;"
     " const sz = document.querySelector('input[name=size]:checked')?.parentElement.textContent.trim();"
     " const tp = [...document.querySelectorAll('input[name=topping]:checked')]"
-    "   .map(e => e.parentElement.textContent.trim());"
+    ".map(e => e.parentElement.textContent.trim());"
     " return v('custname') === 'Taro Yamada'"
     " && v('custtel') === '090-1234-5678'"
     " && v('custemail') === 'taro@example.com'"
@@ -46,75 +52,166 @@ HTTPBIN_VERIFY_JS = (
     "})()"
 )
 
-FLIGHTS_VERIFY_JS = (
-    "(() => {"
-    " if (!location.href.includes('/travel/flights/search')) return false;"
-    " const val = name => [...document.querySelectorAll('input')]"
-    "   .filter(e => e.offsetParent !== null && (e.getAttribute('aria-label') || '').trim() === name)"
-    "   .map(e => e.value)[0] || '';"
-    " const retVisible = [...document.querySelectorAll('input[aria-label=\"Return\"]')]"
-    "   .some(e => e.offsetParent !== null);"
-    " return val('Where from?').includes('Zürich')"
-    "   && val('Where to?').includes('London')"
-    "   && val('Departure').includes('Dec 15')"
-    "   && !retVisible;"
-    "})()"
-)
+
+def wizard_verify_js(code: str = "INVITE-001") -> str:
+    return (
+        "(() => {"
+        " return !document.getElementById('screen-3').classList.contains('hidden')"
+        " && document.getElementById('summary-name').textContent === 'Taro Yamada'"
+        " && document.getElementById('summary-email').textContent === 'taro@example.com'"
+        f" && document.getElementById('summary-code').textContent === {json.dumps(code)}"
+        " && document.getElementById('summary-token').textContent.startsWith('tok-')"
+        " && document.getElementById('summary-workspace').textContent === 'core-app'"
+        " && document.getElementById('summary-region').textContent === 'tokyo'"
+        " && document.getElementById('summary-audit').textContent === 'enabled'"
+        " && document.getElementById('note').value === 'Ready for staging review';"
+        "})()"
+    )
 
 
-def clean_env() -> dict[str, str]:
-    return {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
+def _clean_env() -> dict[str, str]:
+    env = dict(os.environ)
+    for key in (
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "TYPESAFE_API_KEY",
+        "LIQUID_API_KEY",
+        "DECISION_API_KEY",
+        "DECISION_PROVIDER",
+        "DECISION_MODEL",
+        "DECISION_BASE_URL",
+    ):
+        env.pop(key, None)
+    return env
 
 
-def run_abd(plan_path: Path, extra_args: list[str] | None = None) -> dict:
+def _strip_profiles(obj: object) -> object:
+    if isinstance(obj, dict):
+        obj.pop("profile", None)
+        for v in obj.values():
+            _strip_profiles(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            _strip_profiles(item)
+    return obj
+
+
+def _cleanup_session_and_profile(sid: str | None, profile: str | None = None) -> None:
+    closed = False
+    if sid:
+        browser = AgentBrowser(session=sid)
+        registry = browser._capture_registry()
+        closed = browser._confirm_closed(expected_registry=registry) or browser.close()
+    if profile and closed:
+        tmp_root = Path(os.path.realpath(tempfile.gettempdir()))
+        prof_path = Path(profile)
+        if not prof_path.is_symlink() and prof_path.is_dir():
+            resolved = Path(os.path.realpath(prof_path))
+            if resolved != tmp_root and tmp_root in resolved.parents:
+                shutil.rmtree(resolved)
+
+
+@contextlib.contextmanager
+def local_wizard_server(delay_ms: int = 250) -> Iterator[str]:
+    proc = subprocess.Popen(
+        [sys.executable, str(WIZARD_SERVER), "--port", "0", "--delay-ms", str(delay_ms)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    try:
+        assert proc.stdout is not None
+        url = proc.stdout.readline().strip()
+        if not url.startswith("http://127.0.0.1:"):
+            raise RuntimeError(f"Wizard server failed to start (got {url!r})")
+        for _ in range(40):
+            try:
+                with urllib.request.urlopen(f"{url}health", timeout=1) as r:
+                    if r.status == 200:
+                        break
+            except Exception:
+                time.sleep(0.05)
+        yield url
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+def reset_wizard_server(base_url: str) -> None:
+    req = urllib.request.Request(f"{base_url}api/reset", data=b"{}", method="POST")
+    with urllib.request.urlopen(req, timeout=2) as r:
+        assert r.status == 200
+
+
+def run_abd(
+    plan_path: Path,
+    extra_args: list[str] | None = None,
+    *,
+    expect_closed: bool = True,
+) -> dict:
     cmd = ["agent-browser-decisions", "run", str(plan_path), *(extra_args or [])]
     t0 = time.perf_counter()
-    r = subprocess.run(cmd, capture_output=True, check=False, text=True, env=clean_env(), timeout=60)
+    r = subprocess.run(cmd, capture_output=True, check=False, text=True, timeout=60, env=_clean_env())
     dt = time.perf_counter() - t0
-    data = json.loads(r.stdout) if r.stdout.strip() else {}
-    if not extra_args and data.get("session_open") and data.get("session"):
-        subprocess.run(["agent-browser", "--session", data["session"], "close"], capture_output=True, check=False)
-        if data.get("profile"):
-            shutil.rmtree(data["profile"], ignore_errors=True)
+    data: dict = {}
+    with contextlib.suppress(json.JSONDecodeError):
+        data = json.loads(r.stdout) if r.stdout.strip() else {}
+    steps = data.get("steps") or []
+    closed_ok = (data.get("session_open") is False) if expect_closed else True
     return {
-        "ok": r.returncode == 0 and data.get("ok") is True and data.get("verified") is True,
+        "ok": r.returncode == 0 and bool(data.get("ok")) and bool(data.get("verified")) and closed_ok,
+        "rc": r.returncode,
         "wall_s": round(dt, 3),
         "internal_ms": data.get("elapsed_ms"),
+        "tiers": [s.get("tier") for s in steps],
+        "batched_steps": sum(1 for s in steps if s.get("batched")),
         "stopped_at_step": data.get("stopped_at_step"),
+        "stopped_effect": steps[-1].get("effect") if steps else None,
+        "stopped_reason": steps[-1].get("reason") if steps else None,
         "session": data.get("session"),
         "session_open": data.get("session_open"),
         "profile": data.get("profile"),
-        "stopped_snapshot_lines": len(data["stopped_snapshot"].splitlines()) if data.get("stopped_snapshot") else 0,
-        "error": data.get("error") or (r.stderr.strip()[:200] if r.returncode != 0 else None),
+        "error": data.get("error"),
     }
 
 
-def run_batch(cmds: list[list[str]], sess_prefix: str, *, close_after: bool = True) -> dict:
-    sess = f"{sess_prefix}-{os.getpid()}-{int(time.time() * 1000)}"
-    env = {**clean_env(), "AGENT_BROWSER_SESSION": sess}
+def run_batch(cmds: list[list[str]], session_prefix: str, *, close_after: bool = True) -> dict:
+    sess = f"{session_prefix}-{os.getpid()}-{int(time.time() * 1000) % 100000}"
+    payload = json.dumps(cmds)
     t0 = time.perf_counter()
     try:
         r = subprocess.run(
-            ["agent-browser", "batch", "--json", "--bail"],
-            input=json.dumps(cmds),
-            capture_output=True, check=False,
+            ["agent-browser", "--session", sess, "batch", "--bail", "--json"],
+            input=payload,
+            capture_output=True,
+            check=False,
             text=True,
-            env=env,
             timeout=60,
         )
         dt = time.perf_counter() - t0
-        rows = json.loads(r.stdout) if r.stdout.strip() else []
-        all_ok = len(rows) == len(cmds) and all(x.get("success") for x in rows)
-        verify_res = rows[-2].get("result", {}).get("result") if len(rows) >= 2 and all_ok else None
-        return {
-            "ok": all_ok and verify_res is True,
-            "wall_s": round(dt, 3),
-            "verify": verify_res,
-            "steps_ran": len(rows),
-            "steps_total": len(cmds),
-            "session": sess,
-            "error": next((x.get("error") for x in rows if not x.get("success")), None),
-        }
+        ok = False
+        err = None
+        if r.returncode == 0 and r.stdout.strip():
+            try:
+                rows = json.loads(r.stdout)
+                eval_rows = [row for row in rows if row.get("command", [""])[0] == "eval"]
+                all_ok = all(row.get("success") for row in rows)
+                eval_true = bool(eval_rows) and eval_rows[-1].get("result", {}).get("result") is True
+                ok = all_ok and eval_true
+                if not ok:
+                    failed = [row for row in rows if not row.get("success")]
+                    err = failed[-1].get("error") if failed else f"verify={eval_rows}"
+            except json.JSONDecodeError:
+                err = r.stdout[:200]
+        else:
+            err = (r.stderr or r.stdout).strip()[:200]
+        return {"ok": ok, "wall_s": round(dt, 3), "session": sess, "error": err}
     finally:
         if close_after:
             subprocess.run(["agent-browser", "--session", sess, "close"], capture_output=True, check=False)
@@ -135,28 +232,21 @@ def httpbin_batch_cmds(size: str = "Medium") -> list[list[str]]:
     ]
 
 
-def flights_batch_cmds() -> list[list[str]]:
+def wizard_batch_cmds(url: str, code: str = "INVITE-001") -> list[list[str]]:
     return [
-        ["open", FLIGHTS_URL],
-        ["find", "role", "combobox", "click", "--name", "Change ticket type."],
-        ["wait", "--text", "One way"],
-        ["find", "role", "option", "click", "--name", "One way"],
-        ["find", "role", "combobox", "click", "--name", "Where from?"],
-        ["find", "role", "combobox", "fill", "Zurich", "--name", "Where else?"],
-        ["wait", "--text", "Zürich, Switzerland"],
-        ["find", "role", "option", "click", "--name", "Zürich, Switzerland"],
-        ["find", "role", "combobox", "click", "--name", "Where to?"],
-        ["find", "role", "combobox", "fill", "London", "--name", "Where to?"],
-        ["wait", "--text", "London, United Kingdom"],
-        ["find", "role", "option", "click", "--name", "London, United Kingdom"],
-        ["find", "role", "textbox", "click", "--name", "Departure"],
-        ["wait", "--text", "Done"],
-        ["find", "role", "button", "click", "--name", FLIGHTS_DATE],
-        ["find", "role", "button", "click", "--name", "Done."],
-        ["wait", "600"],
-        ["find", "role", "button", "click", "--name", "Search"],
-        ["wait", "--fn", FLIGHTS_VERIFY_JS],
-        ["eval", FLIGHTS_VERIFY_JS],
+        ["open", url],
+        ["find", "label", "Display name:", "fill", "Taro Yamada"],
+        ["find", "label", "Work email:", "fill", "taro@example.com"],
+        ["find", "label", "One-time code:", "fill", code],
+        ["find", "role", "button", "click", "--name", "Verify & continue"],
+        ["wait", "--text", "Step 2 of 3"],
+        ["find", "label", "Workspace name:", "fill", "core-app"],
+        ["find", "role", "radio", "check", "--name", "Tokyo"],
+        ["find", "role", "checkbox", "check", "--name", "Enable audit log"],
+        ["find", "role", "button", "click", "--name", "Continue"],
+        ["wait", "--text", "Step 3 of 3"],
+        ["find", "label", "Release note:", "fill", "Ready for staging review"],
+        ["eval", wizard_verify_js(code)],
         ["close"],
     ]
 
@@ -190,38 +280,53 @@ def summarize(results: dict[str, list[dict]]) -> dict[str, dict]:
 
 def run_main_suite(rounds: int, chrome_bin: str, py_exe: str) -> dict:
     hb_plan = PLANS_DIR / "httpbin.json"
-    fl_plan = PLANS_DIR / "flights.json"
     pw_hb = SCRIPTS_DIR / "pw_httpbin.py"
-    pw_fl = SCRIPTS_DIR / "pw_flights.py"
+    pw_wiz = SCRIPTS_DIR / "pw_wizard.py"
+    wiz_template = json.loads((PLANS_DIR / "wizard.json").read_text(encoding="utf-8"))
 
     results: dict[str, list[dict]] = {
         "httpbin_playwright": [],
         "httpbin_batch": [],
         "httpbin_abd": [],
-        "flights_playwright": [],
-        "flights_batch_wait": [],
-        "flights_abd": [],
+        "wizard_playwright": [],
+        "wizard_batch_wait": [],
+        "wizard_abd": [],
     }
-    for r in range(rounds):
-        rot = r % 3
-        hb_methods = [
-            ("httpbin_playwright", lambda: run_playwright(pw_hb, [chrome_bin], py_exe)),
-            ("httpbin_batch", lambda: run_batch(httpbin_batch_cmds(), "bench-hb-batch")),
-            ("httpbin_abd", lambda: run_abd(hb_plan)),
-        ]
-        fl_methods = [
-            ("flights_playwright", lambda: run_playwright(pw_fl, [chrome_bin], py_exe)),
-            ("flights_batch_wait", lambda: run_batch(flights_batch_cmds(), "bench-fl-batch")),
-            ("flights_abd", lambda: run_abd(fl_plan)),
-        ]
-        for name, fn in hb_methods[rot:] + hb_methods[:rot]:
-            res = fn()
-            results[name].append(res)
-            print(f"[main R{r + 1}] {name}: ok={res['ok']} wall_s={res['wall_s']}", flush=True)
-        for name, fn in fl_methods[rot:] + fl_methods[:rot]:
-            res = fn()
-            results[name].append(res)
-            print(f"[main R{r + 1}] {name}: ok={res['ok']} wall_s={res['wall_s']}", flush=True)
+    with local_wizard_server(delay_ms=250) as wiz_url, tempfile.TemporaryDirectory() as td:
+        wiz_plan = Path(td) / "wizard.json"
+        wiz_template["url"] = wiz_url
+        wiz_plan.write_text(json.dumps(wiz_template, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        for r in range(rounds):
+            rot = r % 3
+            hb_methods = [
+                ("httpbin_playwright", lambda: run_playwright(pw_hb, [chrome_bin], py_exe)),
+                ("httpbin_batch", lambda: run_batch(httpbin_batch_cmds(), "bench-hb-batch")),
+                ("httpbin_abd", lambda: run_abd(hb_plan)),
+            ]
+            for name, fn in hb_methods[rot:] + hb_methods[:rot]:
+                res = fn()
+                results[name].append(res)
+                print(f"[main R{r + 1}] {name}: ok={res['ok']} wall_s={res['wall_s']}", flush=True)
+
+            wiz_methods = [
+                (
+                    "wizard_playwright",
+                    lambda: (reset_wizard_server(wiz_url), run_playwright(pw_wiz, [chrome_bin, wiz_url], py_exe))[1],
+                ),
+                (
+                    "wizard_batch_wait",
+                    lambda: (reset_wizard_server(wiz_url), run_batch(wizard_batch_cmds(wiz_url), "bench-wiz-batch"))[1],
+                ),
+                (
+                    "wizard_abd",
+                    lambda: (reset_wizard_server(wiz_url), run_abd(wiz_plan))[1],
+                ),
+            ]
+            for name, fn in wiz_methods[rot:] + wiz_methods[:rot]:
+                res = fn()
+                results[name].append(res)
+                print(f"[main R{r + 1}] {name}: ok={res['ok']} wall_s={res['wall_s']}", flush=True)
     return {"rounds": rounds, "summary": summarize(results), "raw": results}
 
 
@@ -237,22 +342,19 @@ def run_reuse_suite(rounds: int) -> dict:
         results["abd_cold"].append(res)
         print(f"[reuse cold {i + 1}] wall_s={res['wall_s']} internal_ms={res['internal_ms']}", flush=True)
 
-    seed = run_abd(hb_plan, ["--keep-open"])
+    seed = run_abd(hb_plan, ["--keep-open"], expect_closed=False)
     sid = seed.get("session")
     try:
         for i in range(rounds):
             args = ["--session", sid, "--reload", "--var", "name=Hanako Sato", "--var", "size=Large"]
-            if i == rounds - 1:
+            is_last = i == rounds - 1
+            if is_last:
                 args.append("--close")
-            res = run_abd(hb_plan, args)
+            res = run_abd(hb_plan, args, expect_closed=is_last)
             results["abd_reload"].append(res)
             print(f"[reuse reload {i + 1}] wall_s={res['wall_s']} internal_ms={res['internal_ms']}", flush=True)
     finally:
-        if sid:
-            subprocess.run(["agent-browser", "--session", sid, "close"], capture_output=True, check=False)
-        prof = locals().get("seed", {}).get("profile") or locals().get("stop_res", {}).get("profile")
-        if prof:
-            shutil.rmtree(prof, ignore_errors=True)
+        _cleanup_session_and_profile(sid, seed.get("profile"))
 
     for i in range(rounds):
         sess = f"bench-noopen-{os.getpid()}-{i}"
@@ -262,7 +364,7 @@ def run_reuse_suite(rounds: int) -> dict:
             results["abd_no_open"].append(res)
             print(f"[reuse no_open {i + 1}] wall_s={res['wall_s']} internal_ms={res['internal_ms']}", flush=True)
         finally:
-            subprocess.run(["agent-browser", "--session", sess, "close"], capture_output=True, check=False)
+            _cleanup_session_and_profile(sess)
 
     return {"rounds": rounds, "summary": summarize(results), "raw": results}
 
@@ -278,14 +380,15 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
     try:
         chk = subprocess.run(
             ["agent-browser", "--session", batch_sess, "eval", "document.querySelector('[name=custname]').value"],
-            capture_output=True, check=False,
+            capture_output=True,
+            check=False,
             text=True,
         )
         batch_res["session_kept_custname"] = chk.stdout.strip()
     finally:
         subprocess.run(["agent-browser", "--session", batch_sess, "close"], capture_output=True, check=False)
 
-    stop_res = run_abd(hb_plan, ["--var", "size=Extra Large"])
+    stop_res = run_abd(hb_plan, ["--var", "size=Extra Large"], expect_closed=False)
     sid = stop_res.get("session")
     kept_name = None
     resume_res = None
@@ -293,22 +396,19 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
         if sid:
             chk = subprocess.run(
                 ["agent-browser", "--session", sid, "eval", "document.querySelector('[name=custname]').value"],
-                capture_output=True, check=False,
+                capture_output=True,
+                check=False,
                 text=True,
             )
             kept_name = chk.stdout.strip()
             resume_res = run_abd(
                 hb_plan,
-                ["--session", sid, "--from-step", "4", "--var", "size=Large", "--close"],
+                ["--session", sid, "--from-step", "4", "--expect-url", HTTPBIN_URL, "--var", "size=Large", "--close"],
             )
     finally:
-        if sid:
-            subprocess.run(["agent-browser", "--session", sid, "close"], capture_output=True, check=False)
-        prof = locals().get("seed", {}).get("profile") or locals().get("stop_res", {}).get("profile")
-        if prof:
-            shutil.rmtree(prof, ignore_errors=True)
+        _cleanup_session_and_profile(sid, stop_res.get("profile"))
 
-    stop_res2 = run_abd(hb_plan, ["--var", "size=Extra Large"])
+    stop_res2 = run_abd(hb_plan, ["--var", "size=Extra Large"], expect_closed=False)
     sid2 = stop_res2.get("session")
     resume_step5 = None
     try:
@@ -320,13 +420,10 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
             )
             resume_step5 = run_abd(
                 hb_plan,
-                ["--session", sid2, "--from-step", "5", "--var", "size=Large", "--close"],
+                ["--session", sid2, "--from-step", "5", "--expect-url", HTTPBIN_URL, "--var", "size=Large", "--close"],
             )
     finally:
-        if sid2:
-            subprocess.run(["agent-browser", "--session", sid2, "close"], capture_output=True, check=False)
-        if stop_res2.get("profile"):
-            shutil.rmtree(stop_res2["profile"], ignore_errors=True)
+        _cleanup_session_and_profile(sid2, stop_res2.get("profile"))
 
     out = {
         "playwright_default_timeout3s": pw_res,
@@ -336,70 +433,79 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
         "abd_resume_from_step_4": resume_res,
         "abd_resume_from_step_5_after_direct_op": resume_step5,
     }
-    print("[drift]", json.dumps(out, indent=2, ensure_ascii=False), flush=True)
+    print("[drift]", json.dumps(_strip_profiles(json.loads(json.dumps(out))), indent=2, ensure_ascii=False), flush=True)
     return out
 
 
-
-
-def run_flights_resume_suite(rounds: int) -> dict:
-    """Compare live-session resume (--from-step 12) vs full restart from step 1 on Google Flights."""
-    fl_plan_data = json.loads((PLANS_DIR / "flights.json").read_text(encoding="utf-8"))
-    broken_data = json.loads(json.dumps(fl_plan_data))
-    broken_data["steps"][-1]["target"] = "Find flights"
+def run_wizard_resume_suite(rounds: int) -> dict:
+    """Compare live-session resume (--from-step 8) vs restart on the local 3-screen single-use-code wizard."""
+    fixed_data = json.loads((PLANS_DIR / "wizard.json").read_text(encoding="utf-8"))
+    broken_data = json.loads(json.dumps(fixed_data))
+    broken_data["steps"][7]["target"] = "Next"
 
     results: dict[str, list[dict]] = {
-        "flights_stop_step12": [],
-        "flights_resume_step12": [],
-        "flights_restart_step1": [],
+        "wizard_stop_step8": [],
+        "wizard_restart_same_code_rejected": [],
+        "wizard_resume_step8": [],
+        "wizard_restart_fresh_code": [],
     }
-    with tempfile.TemporaryDirectory() as td:
-        broken_path = Path(td) / "flights_broken.json"
-        fixed_path = Path(td) / "flights_fixed.json"
+    with local_wizard_server(delay_ms=250) as wiz_url, tempfile.TemporaryDirectory() as td:
+        broken_data["url"] = wiz_url
+        fixed_data["url"] = wiz_url
+        broken_path = Path(td) / "wizard_broken.json"
+        fixed_path = Path(td) / "wizard_fixed.json"
         broken_path.write_text(json.dumps(broken_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        fixed_path.write_text(json.dumps(fl_plan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        fixed_path.write_text(json.dumps(fixed_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
         for r in range(rounds):
-            # Alternate order per round to avoid order bias
             order = ["resume", "restart"] if r % 2 == 0 else ["restart", "resume"]
             for mode in order:
                 if mode == "resume":
-                    stop_res = run_abd(broken_path, ["--keep-open"])
+                    reset_wizard_server(wiz_url)
+                    stop_res = run_abd(broken_path, ["--settle-s", "0.5"], expect_closed=False)
                     sid = stop_res.get("session")
                     stop_ok = (
-                        stop_res.get("stopped_at_step") == 12
+                        stop_res.get("stopped_at_step") == 8
+                        and str(stop_res.get("stopped_reason") or "").startswith("no label match")
                         and stop_res.get("session_open") is True
                         and bool(sid)
                     )
-                    results["flights_stop_step12"].append({**stop_res, "ok": stop_ok})
+                    results["wizard_stop_step8"].append({**stop_res, "ok": stop_ok})
                     try:
+                        # Prove restarting from step 1 with the already-consumed INVITE-001 fails (HTTP 409)
+                        same_res = run_abd(fixed_path, ["--settle-s", "0.5"], expect_closed=False)
+                        same_sid = same_res.get("session")
+                        try:
+                            rejected_ok = (
+                                same_res.get("rc") == 1
+                                and same_res.get("stopped_at_step") == 4
+                                and same_res.get("stopped_effect") == "no_effect"
+                            )
+                            results["wizard_restart_same_code_rejected"].append({**same_res, "ok": rejected_ok})
+                        finally:
+                            _cleanup_session_and_profile(same_sid, same_res.get("profile"))
+
                         if sid and stop_ok:
                             res = run_abd(
                                 fixed_path,
-                                ["--session", sid, "--from-step", "12", "--close"],
+                                ["--session", sid, "--from-step", "8", "--expect-url", wiz_url, "--close"],
                             )
                         else:
-                            res = {"ok": False, "wall_s": 0.0, "error": "did not stop cleanly at step 12"}
-                        results["flights_resume_step12"].append(res)
+                            res = {"ok": False, "wall_s": 0.0, "error": "did not stop cleanly at step 8"}
+                        results["wizard_resume_step8"].append(res)
                         print(
-                            f"[flights_resume R{r + 1}] stop={stop_res['wall_s']}s "
-                            f"resume_step12: ok={res['ok']} wall_s={res['wall_s']}",
+                            f"[wizard_resume R{r + 1}] stop={stop_res['wall_s']}s "
+                            f"same_code_rejected={rejected_ok} resume_step8: ok={res['ok']} wall_s={res['wall_s']}",
                             flush=True,
                         )
                     finally:
-                        if sid:
-                            subprocess.run(
-                                ["agent-browser", "--session", sid, "close"],
-                                capture_output=True,
-                                check=False,
-                            )
-                        if stop_res.get("profile"):
-                            shutil.rmtree(stop_res["profile"], ignore_errors=True)
+                        _cleanup_session_and_profile(sid, stop_res.get("profile"))
                 else:
-                    res = run_abd(fixed_path)
-                    results["flights_restart_step1"].append(res)
+                    reset_wizard_server(wiz_url)
+                    res = run_abd(fixed_path, ["--var", f"code=INVITE-FRESH-{r + 1}"])
+                    results["wizard_restart_fresh_code"].append(res)
                     print(
-                        f"[flights_resume R{r + 1}] restart_step1: ok={res['ok']} wall_s={res['wall_s']}",
+                        f"[wizard_resume R{r + 1}] restart_fresh_code: ok={res['ok']} wall_s={res['wall_s']}",
                         flush=True,
                     )
     return {"rounds": rounds, "summary": summarize(results), "raw": results}
@@ -407,33 +513,35 @@ def run_flights_resume_suite(rounds: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--suite", choices=["main", "reuse", "drift", "flights_resume", "all"], default="all")
+    ap.add_argument("--suite", choices=["main", "reuse", "drift", "wizard_resume", "all"], default="all")
     ap.add_argument("--rounds", type=int, default=5)
     ap.add_argument("--chrome", type=str, default=DEFAULT_CHROME)
     ap.add_argument("--out", type=str, required=True)
     args = ap.parse_args()
 
-    ver = subprocess.run(
+    abd_ver = subprocess.run(
         ["agent-browser-decisions", "--version"], capture_output=True, check=False, text=True
     ).stdout.strip()
-    out: dict = {"chrome": args.chrome, "abd_version": ver}
+    ab_ver = subprocess.run(["agent-browser", "--version"], capture_output=True, check=False, text=True).stdout.strip()
+    try:
+        pw_ver = importlib.metadata.version("playwright")
+    except importlib.metadata.PackageNotFoundError:
+        pw_ver = None
+
+    out: dict = {
+        "chrome_for_playwright": args.chrome,
+        "abd_version": abd_ver,
+        "agent_browser_version": ab_ver,
+        "playwright_version": pw_ver,
+    }
     if args.suite in ("main", "all"):
         out["main"] = run_main_suite(args.rounds, args.chrome, sys.executable)
     if args.suite in ("reuse", "all"):
         out["reuse"] = run_reuse_suite(args.rounds)
     if args.suite in ("drift", "all"):
         out["drift"] = run_drift_suite(args.chrome, sys.executable)
-    if args.suite in ("flights_resume", "all"):
-        out["flights_resume"] = run_flights_resume_suite(args.rounds)
-
-    def _strip_profiles(obj: object) -> None:
-        if isinstance(obj, dict):
-            obj.pop("profile", None)
-            for v in obj.values():
-                _strip_profiles(v)
-        elif isinstance(obj, list):
-            for v in obj:
-                _strip_profiles(v)
+    if args.suite in ("wizard_resume", "all"):
+        out["wizard_resume"] = run_wizard_resume_suite(args.rounds)
 
     _strip_profiles(out)
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

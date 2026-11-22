@@ -1,4 +1,4 @@
-"""Plan execution orchestrator enforcing TLA+-verified session, profile, retry, and verify invariants."""
+"""Plan execution orchestrator enforcing formally checked session, profile, retry, and verify invariants."""
 
 from __future__ import annotations
 
@@ -69,6 +69,19 @@ class Metrics:
             "calls": dict(self.calls),
             "tokens": self.tokens,
         }
+
+
+def _remove_owned_profile(profile: str | None, created_profile: str | None) -> str | None:
+    """Remove only the dedicated temp profile directory created at startup for this run."""
+    if not profile:
+        return None
+    if profile != created_profile or os.path.islink(profile) or not os.path.isdir(profile):
+        return profile
+    try:
+        shutil.rmtree(profile)
+    except OSError:
+        return profile
+    return None
 
 
 def poll(predicate: Callable[[], bool], wait_s: float, interval_s: float = 0.05) -> bool:
@@ -639,9 +652,11 @@ class PlanRunner:
         owns_session = bool(plan.get("reset") is True and not session and from_step == 1)
         session_opened = bool(session)
         profile: str | None = None
+        created_profile: str | None = None
         if owns_session:
             session = f"abd-{int(time.time() * 1000)}-{os.getpid()}"
             profile = self._profile_factory()
+            created_profile = profile
 
         metrics = Metrics()
         browser = self._browser_factory(
@@ -685,19 +700,27 @@ class PlanRunner:
         verify_value: Any = None
         fused_url: str | None = None
         closed = False
+        open_attempted = False
 
         try:
             with decisions:
                 if plan.get("url") and from_step == 1 and not no_open:
+                    open_attempted = True
                     try:
                         browser.open(plan["url"], profile=profile)
                         session_opened = True
                     except (RuntimeError, subprocess.TimeoutExpired, OSError) as failure:
                         error = redact_text(str(failure), secrets)[:300]
-                        if profile:
-                            shutil.rmtree(profile, ignore_errors=True)
-                            profile = None
-                        return {
+                        if owns_session:
+                            try:
+                                close_res = browser.close()
+                                closed = close_res is not False
+                            except (RuntimeError, subprocess.TimeoutExpired, OSError):
+                                closed = False
+                            session_opened = not closed
+                        if profile and not session_opened:
+                            profile = _remove_owned_profile(profile, created_profile)
+                        res_fail: dict[str, Any] = {
                             "ok": False,
                             "session": session or env_map.get("AGENT_BROWSER_SESSION", "default"),
                             "session_open": session_opened,
@@ -709,6 +732,9 @@ class PlanRunner:
                             "url": "",
                             "steps": [],
                         }
+                        if profile:
+                            res_fail["profile"] = profile
+                        return res_fail
 
                 verify_expr = wrap_verify_with_vars(plan["verify"], merged_vars) if plan.get("verify") else None
                 if expect_url:
@@ -841,19 +867,19 @@ class PlanRunner:
             # Close on success unless --keep-open was requested; always close owned sessions on interrupt.
             should_close_on_ok = (owns_session and not keep_open) or close_on_success
             should_close_on_interrupt = owns_session or close_on_success
-            if ((ok and should_close_on_ok) or (interrupted and should_close_on_interrupt)) and session_opened:
+            has_live_session = session_opened or (interrupted and owns_session and open_attempted)
+            if ((ok and should_close_on_ok) or (interrupted and should_close_on_interrupt)) and has_live_session:
                 try:
                     close_res = browser.close()
                     closed = close_res is not False
                 except (RuntimeError, subprocess.TimeoutExpired, OSError):
                     closed = False
-            session_open = session_opened and not closed
+            session_open = has_live_session and not closed
             if not ok and session_open and not interrupted and not expect_url_failed and snapshot_tracker.stale:
                 with contextlib.suppress(RuntimeError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
                     snapshot_tracker.record(browser.observe(category="observe"))
             if profile and not session_open:
-                shutil.rmtree(profile, ignore_errors=True)
-                profile = None
+                profile = _remove_owned_profile(profile, created_profile)
 
         stopped = next((e["step"] for e in log if not e.get("ok")), None)
         if stopped is None and not completed and error and error.startswith("expect_url "):

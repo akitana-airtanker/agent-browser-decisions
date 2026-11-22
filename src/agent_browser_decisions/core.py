@@ -415,15 +415,10 @@ def decision_request(
     safe_goal = redact_text(goal, secrets)
     safe_target = redact_text(str(step.get("describe") or step["target"]), secrets)
     context_text = f"Page URL: {safe_url}\nGoal: {safe_goal}"
-    prompt_text = (
-        f"Action: {step['action']}\n"
-        f"Target: {safe_target}\n"
-        "Which observed element should this step act on?"
-    )
+    prompt_text = f"Action: {step['action']}\nTarget: {safe_target}\nWhich observed element should this step act on?"
     if spec.protocol == "openai":
         choices = [
-            {"value": e["ref"], "description": redact_text(describe(e), secrets)}
-            for e in candidates[: MAX_CHOICES - 1]
+            {"value": e["ref"], "description": redact_text(describe(e), secrets)} for e in candidates[: MAX_CHOICES - 1]
         ]
         choices.append(
             {
@@ -446,9 +441,7 @@ def decision_request(
 
     # System One (TypeSafe Jev, Liquid d1/d1.2) and Gemini Decisions lack a native
     # allow_abstention flag on `choice`, so reserve 1 slot of MAX_CHOICES for NONE_CHOICE.
-    criteria: dict[str, str] = {
-        e["ref"]: redact_text(describe(e), secrets) for e in candidates[: MAX_CHOICES - 1]
-    }
+    criteria: dict[str, str] = {e["ref"]: redact_text(describe(e), secrets) for e in candidates[: MAX_CHOICES - 1]}
     criteria[NONE_CHOICE] = "None of the observed elements matches this step"
     context_key = "input" if spec.protocol == "gemini" else "state"
     return {
@@ -675,8 +668,7 @@ def redact_value(value: Any, secrets: set[str] | frozenset[str]) -> Any:
         return [redact_value(item, secrets) for item in value]
     if isinstance(value, dict):
         return {
-            (redact_text(k, secrets) if isinstance(k, str) else k): redact_value(v, secrets)
-            for k, v in value.items()
+            (redact_text(k, secrets) if isinstance(k, str) else k): redact_value(v, secrets) for k, v in value.items()
         }
     return value
 
@@ -1010,11 +1002,7 @@ def select_tier1_batch(
         action = step.get("action")
         if action not in BATCHABLE_ACTIONS:
             break
-        if (
-            step.get("decide") is True
-            or step.get("expect") == "navigation"
-            or not should_retry_step(step)
-        ):
+        if step.get("decide") is True or step.get("expect") == "navigation" or not should_retry_step(step):
             break
         element, status = match_label(step, elements)
         if status != "hit" or element is None:

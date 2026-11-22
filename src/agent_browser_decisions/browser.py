@@ -66,6 +66,7 @@ class AgentBrowser:
         self.timeout_s = timeout_s
         self.secrets = secrets
         self._on_metric = on_metric
+        self._opened_registry: tuple[str, str | None] | None = None
 
     def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
         started = time.perf_counter()
@@ -99,11 +100,77 @@ class AgentBrowser:
         origin = data.get("origin", "")
         return {"url": origin if isinstance(origin, str) else "", "raw": raw, "elements": parse_snapshot(raw)}
 
+    def _parse_registry(self, data: dict[str, Any]) -> tuple[str, str | None] | None:
+        socket_dir = data.get("socketDir")
+        namespace = data.get("namespace")
+        if not isinstance(socket_dir, str) or not socket_dir:
+            return None
+        if namespace is not None and not isinstance(namespace, str):
+            return None
+        return (os.path.realpath(socket_dir), namespace)
+
+    def session_info(self) -> dict[str, Any] | None:
+        raw = self.call("session", "info", "--json", check=True, category="check")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or payload.get("success") is not True:
+            return None
+        data = payload.get("data")
+        return data if isinstance(data, dict) else None
+
+    def _capture_registry(self) -> tuple[str, str | None] | None:
+        try:
+            info = self.session_info()
+        except (RuntimeError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+            return None
+        return self._parse_registry(info) if info is not None else None
+
+    def _confirm_closed(self, *, expected_registry: tuple[str, str | None] | None) -> bool:
+        if expected_registry is None:
+            return False
+        expected_session = self.session or os.environ.get("AGENT_BROWSER_SESSION") or "default"
+        try:
+            info = self.session_info()
+            if info is None:
+                return False
+            if info.get("session") != expected_session:
+                return False
+            if (
+                info.get("active") is not False
+                or info.get("pid") is not None
+                or info.get("runtime") is not None
+                or info.get("runtimeError") is not None
+            ):
+                return False
+            registry = self._parse_registry(info)
+            if registry != expected_registry:
+                return False
+            socket_dir, _namespace = registry
+            if not os.path.isdir(socket_dir) or not os.access(socket_dir, os.R_OK | os.X_OK):
+                return False
+            os.listdir(socket_dir)
+
+            raw_list = self.call("session", "list", "--json", check=True, category="check")
+            list_payload = json.loads(raw_list)
+            if not isinstance(list_payload, dict) or list_payload.get("success") is not True:
+                return False
+            list_data = list_payload.get("data")
+            sessions = list_data.get("sessions") if isinstance(list_data, dict) else None
+            if not isinstance(sessions, list) or not all(isinstance(s, str) for s in sessions):
+                return False
+            return expected_session not in sessions
+        except (RuntimeError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+            return False
+
     def open(self, url: str, *, profile: str | None = None) -> None:
+        if self._opened_registry is None:
+            self._opened_registry = self._capture_registry()
         if profile:
             self.call("--profile", profile, "open", url)
         else:
             self.call("open", url)
+        captured = self._capture_registry()
+        if captured is not None:
+            self._opened_registry = captured
 
     def current_url(self) -> str:
         try:
@@ -146,8 +213,9 @@ class AgentBrowser:
         return parsed
 
     def close(self) -> bool:
+        expected_registry = self._opened_registry or self._capture_registry()
         try:
             self.call("close", check=True)
-            return True
         except (RuntimeError, subprocess.TimeoutExpired, OSError):
             return False
+        return self._confirm_closed(expected_registry=expected_registry)

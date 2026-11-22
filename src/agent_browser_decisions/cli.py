@@ -36,8 +36,25 @@ def _default_dotenv_candidates(explicit: str | None = None) -> list[Path]:
     return candidates
 
 
+IMPLICIT_DOTENV_ALLOWED_KEYS: frozenset[str] = frozenset(
+    {
+        *(key for spec in PROVIDERS.values() for key in spec.api_key_envs),
+        "DECISION_API_KEY",
+        "DECISION_PROVIDER",
+        "DECISION_MODEL",
+    }
+)
+
+
 def load_dotenv_files(explicit: str | None = None) -> Path | None:
-    """Load the first existing .env file without clobbering already-set environment variables."""
+    """Load the first existing .env file without clobbering already-set environment variables.
+
+    Implicitly discovered .env files (CWD / editable repo root) are restricted to
+    IMPLICIT_DOTENV_ALLOWED_KEYS so untrusted directories cannot inject AGENT_BROWSER_*
+    executables/args or override *_BASE_URL endpoints. Explicit --env-file /
+    AGENT_BROWSER_DECISIONS_ENV_FILE loads all non-existing keys as requested.
+    """
+    is_explicit = bool(explicit or os.environ.get("AGENT_BROWSER_DECISIONS_ENV_FILE"))
     for candidate in _default_dotenv_candidates(explicit):
         if not candidate.is_file():
             continue
@@ -46,6 +63,8 @@ def load_dotenv_files(explicit: str | None = None) -> Path | None:
         except OSError:
             continue
         for key, val in pairs.items():
+            if not is_explicit and key not in IMPLICIT_DOTENV_ALLOWED_KEYS:
+                continue
             if val and not os.environ.get(key):
                 os.environ[key] = val
         return candidate

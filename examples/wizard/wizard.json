@@ -1,0 +1,23 @@
+{
+  "url": "http://127.0.0.1:8765/",
+  "reset": true,
+  "vars": {
+    "name": "Taro Yamada",
+    "email": "taro@example.com",
+    "code": "INVITE-001",
+    "workspace": "core-app",
+    "note": "Ready for staging review"
+  },
+  "steps": [
+    {"action": "fill",  "target": "Display name:",     "value": "{{name}}"},
+    {"action": "fill",  "target": "Work email:",       "value": "{{email}}"},
+    {"action": "fill",  "target": "One-time code:",    "value": "{{code}}"},
+    {"action": "click", "target": "Verify & continue"},
+    {"action": "fill",  "target": "Workspace name:",   "value": "{{workspace}}"},
+    {"action": "check", "target": "Tokyo",             "role": "radio"},
+    {"action": "check", "target": "Enable audit log"},
+    {"action": "click", "target": "Next"},
+    {"action": "fill",  "target": "Release note:",     "value": "{{note}}"}
+  ],
+  "verify": "!document.getElementById('screen-3').classList.contains('hidden') && document.getElementById('summary-name').textContent === VARS.name && document.getElementById('summary-email').textContent === VARS.email && document.getElementById('summary-code').textContent === VARS.code && document.getElementById('summary-token').textContent.startsWith('tok-') && document.getElementById('summary-workspace').textContent === VARS.workspace && document.getElementById('summary-region').textContent === 'tokyo' && document.getElementById('summary-audit').textContent === 'enabled' && document.getElementById('note').value === VARS.note"
+}

@@ -727,20 +727,26 @@ def test_select_tier1_batch_batches_form_steps_and_stops_at_dynamic_or_duplicate
     assert select_tier1_batch(dup_steps, elements) == []
 
     # Steps with once=True or retry=False are excluded from speculative batching
-    assert select_tier1_batch(
-        [
-            {"action": "fill", "target": "Name", "value": "A", "once": True},
-            {"action": "fill", "target": "Email", "value": "b@example.com"},
-        ],
-        elements,
-    ) == []
-    assert select_tier1_batch(
-        [
-            {"action": "fill", "target": "Name", "value": "A"},
-            {"action": "fill", "target": "Email", "value": "b@example.com", "retry": False},
-        ],
-        elements,
-    ) == []
+    assert (
+        select_tier1_batch(
+            [
+                {"action": "fill", "target": "Name", "value": "A", "once": True},
+                {"action": "fill", "target": "Email", "value": "b@example.com"},
+            ],
+            elements,
+        )
+        == []
+    )
+    assert (
+        select_tier1_batch(
+            [
+                {"action": "fill", "target": "Name", "value": "A"},
+                {"action": "fill", "target": "Email", "value": "b@example.com", "retry": False},
+            ],
+            elements,
+        )
+        == []
+    )
     leading = select_tier1_batch(
         [
             {"action": "fill", "target": "Name", "value": "A"},
@@ -898,9 +904,7 @@ def test_validate_plan_retry_and_once_conflict() -> None:
     st.from_regex(r"/[a-z0-9]{1,8}(/[a-z0-9]{1,8})?", fullmatch=True),
     st.from_regex(r"[a-z0-9]{1,6}", fullmatch=True),
 )
-def test_url_matches_expected_origin_and_segment_boundaries(
-    scheme: str, host: str, path: str, suffix: str
-) -> None:
+def test_url_matches_expected_origin_and_segment_boundaries(scheme: str, host: str, path: str, suffix: str) -> None:
     from agent_browser_decisions.core import url_matches_expected, validate_expect_url
 
     expected = f"{scheme}://{host}{path}"

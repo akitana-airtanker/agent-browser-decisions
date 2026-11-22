@@ -1,6 +1,6 @@
 [project]
 name = "agent-browser-decisions"
-version = "0.9.9"
+version = "0.9.10"
 description = "Run written browser plans through agent-browser, resolving each step by deterministic label match or a bounded decision model."
 readme = "README.md"
 license = "MIT"
@@ -42,6 +42,8 @@ include = [
     "examples/",
     "skills/",
     "README.md",
+    "SECURITY.md",
+    "docs/",
     "LICENSE",
     "pyproject.toml",
     ".env.example",

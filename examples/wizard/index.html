@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Workspace Onboarding Wizard</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; color: #1e293b; }
+    .card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 20px; }
+    .hidden { display: none; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input[type="text"], input[type="email"] { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; }
+    fieldset { margin-top: 14px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; }
+    fieldset label { display: inline-flex; align-items: center; gap: 6px; margin: 4px 14px 4px 0; font-weight: 400; }
+    .check-row { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; font-weight: 400; }
+    button { margin-top: 18px; padding: 9px 16px; border-radius: 6px; border: 0; background: #1d4ed8; color: #fff; font-weight: 600; cursor: pointer; }
+    .alert { color: #b91c1c; font-weight: 600; margin-top: 12px; }
+    .meta { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+    dl { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 0; }
+    dt { font-weight: 600; color: #475569; }
+    dd { margin: 0; }
+  </style>
+</head>
+<body>
+  <h1>Workspace Onboarding</h1>
+
+  <section id="screen-1" class="card" aria-label="Step 1: Account and one-time code">
+    <h2>Step 1 of 3: Account &amp; One-Time Code</h2>
+    <label for="name">Display name:</label>
+    <input id="name" name="name" type="text" autocomplete="off">
+
+    <label for="email">Work email:</label>
+    <input id="email" name="email" type="email" autocomplete="off">
+
+    <label for="code">One-time code:</label>
+    <input id="code" name="code" type="text" autocomplete="off">
+
+    <p id="error-1" class="alert hidden" role="alert"></p>
+    <button id="btn-step1" type="button">Verify &amp; continue</button>
+  </section>
+
+  <section id="screen-2" class="card hidden" aria-label="Step 2: Workspace setup">
+    <h2>Step 2 of 3: Workspace Setup</h2>
+    <p class="meta">Verified code: <strong id="badge-code"></strong> (<code id="badge-token"></code>)</p>
+
+    <label for="workspace">Workspace name:</label>
+    <input id="workspace" name="workspace" type="text" autocomplete="off">
+
+    <fieldset>
+      <legend>Region</legend>
+      <label><input type="radio" name="region" value="tokyo"> Tokyo</label>
+      <label><input type="radio" name="region" value="us-east"> US-East</label>
+    </fieldset>
+
+    <label class="check-row"><input id="audit" name="audit" type="checkbox"> Enable audit log</label>
+    <p id="error-2" class="alert hidden" role="alert"></p>
+    <div><button id="btn-step2" type="button">Continue</button></div>
+  </section>
+
+  <section id="screen-3" class="card hidden" aria-label="Step 3: Review and release note">
+    <h2>Step 3 of 3: Review</h2>
+    <div class="meta">
+      <dl>
+        <dt>Name</dt><dd id="summary-name"></dd>
+        <dt>Email</dt><dd id="summary-email"></dd>
+        <dt>Code</dt><dd id="summary-code"></dd>
+        <dt>Session token</dt><dd id="summary-token"></dd>
+        <dt>Workspace</dt><dd id="summary-workspace"></dd>
+        <dt>Region</dt><dd id="summary-region"></dd>
+        <dt>Audit log</dt><dd id="summary-audit"></dd>
+      </dl>
+    </div>
+
+    <label for="note">Release note:</label>
+    <input id="note" name="note" type="text" autocomplete="off">
+
+    <div><button id="btn-submit" type="button">Create workspace</button></div>
+  </section>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.get("ui") === "v1") {
+      document.getElementById("btn-step2").textContent = "Next";
+    }
+    const state = { name: "", email: "", code: "", token: "", workspace: "", region: "", audit: false };
+
+    document.getElementById("btn-step1").addEventListener("click", async () => {
+      const err = document.getElementById("error-1");
+      err.classList.add("hidden");
+      state.name = document.getElementById("name").value.trim();
+      state.email = document.getElementById("email").value.trim();
+      state.code = document.getElementById("code").value.trim();
+      const res = await fetch("/api/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: state.name, email: state.email, code: state.code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        err.textContent = data.error || "Verification failed";
+        err.classList.remove("hidden");
+        return;
+      }
+      state.token = data.token;
+      document.getElementById("badge-code").textContent = state.code;
+      document.getElementById("badge-token").textContent = state.token;
+      document.getElementById("screen-1").classList.add("hidden");
+      document.getElementById("screen-2").classList.remove("hidden");
+    });
+
+    document.getElementById("btn-step2").addEventListener("click", async () => {
+      const err = document.getElementById("error-2");
+      err.classList.add("hidden");
+      state.workspace = document.getElementById("workspace").value.trim();
+      const checked = document.querySelector("input[name=region]:checked");
+      state.region = checked ? checked.value : "";
+      state.audit = document.getElementById("audit").checked;
+      const res = await fetch("/api/save-workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: state.token, workspace: state.workspace }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        err.textContent = data.error || "Save failed";
+        err.classList.remove("hidden");
+        return;
+      }
+      document.getElementById("summary-name").textContent = state.name;
+      document.getElementById("summary-email").textContent = state.email;
+      document.getElementById("summary-code").textContent = state.code;
+      document.getElementById("summary-token").textContent = state.token;
+      document.getElementById("summary-workspace").textContent = state.workspace;
+      document.getElementById("summary-region").textContent = state.region;
+      document.getElementById("summary-audit").textContent = state.audit ? "enabled" : "disabled";
+      document.getElementById("screen-2").classList.add("hidden");
+      document.getElementById("screen-3").classList.remove("hidden");
+    });
+  </script>
+</body>
+</html>

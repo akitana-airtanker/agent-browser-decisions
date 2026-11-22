@@ -76,39 +76,41 @@ Plans are JSON files validated against [`schema/plan.schema.json`](schema/plan.s
 }
 ```
 
-See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-login.json`, `hn-positional.json`) and a strict guarded stop/resume shell demo (`httpbin-demo-strict.sh`).
+See [`examples/`](examples/) for a self-contained local 3-screen wizard demo (`wizard/` + `wizard-demo.sh`), a strict `httpbin` demo (`httpbin-demo-strict.sh`), and ready-to-run plans (`quotes.json`, `saucedemo-login.json`, `hn-positional.json`).
 
 ### Step fields
 
 | Field | Applies to | Description |
 | --- | --- | --- |
-| `action` | all (required) | `click`, `fill`, `select`, `check`, or `press` |
+| `action` | all (required) | `click`, `fill`, `select`, `check`, `press`, or `upload` |
 | `target` | all except `press` | Accessible label from `agent-browser snapshot -i` (Unicode NFKC exact match by default; use `match: "prefix"` or `match: "regex"` to opt in) |
-| `value` | `fill`, `select`, `press` | Literal text to enter, option to select, or key name to press |
+| `value` | `fill`, `select`, `press`, `upload` | Literal text to enter, option to select, key name to press, or local file path to upload |
 | `value_env` | `fill` (alt. to `value`) | Environment variable name resolved at runtime; missing vars fail fast (`exit 2`) before opening a browser |
-| `secret` | `fill` | Redact the value (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, and Tier 2 candidate payloads (including prior steps on `--from-step` when env vars remain set). Defaults to `true` when `value_env` is used |
+| `secret` | `fill` | Redact the value (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, `url`, `steps[].chose`, and Tier 2 candidate payloads (including prior steps on `--from-step` when env vars remain set). Defaults to `true` when `value_env` is used |
 | `role` | all except `press` | Expected ARIA role (must be compatible with `action`); also waits up to 3 s for that role to appear. Omit for unseen elements |
 | `nth` | all except `press` | 1-based positional pick among matching elements. Never falls back to Tier 2 or unrelated elements |
 | `match` | all except `press` | `"exact"` (default), `"prefix"` (normalised prefix match for dynamic label suffixes), or `"regex"` (case-insensitive regex against raw names) |
 | `describe` | all except `press` | Human-readable hint sent to Tier 2 when disambiguating |
-| `expect` | all | `"navigation"` to require a document URL change |
+| `expect` | `click`, `press`, `upload` | `"navigation"` to require a document URL change (ignored on `fill`, `check`, `select`) |
 | `navigates` | `click` on `link` | Set `false` for SPA links (modals, tabs) that do not change the URL |
 | `once` | all | Execute at most once across all tiers (also disables Tier 2 alternate-ref retries and `fill`/`check` retries; cannot combine with `retry: true`) |
 | `retry` | all except `press` | Opt-in same-element retry (`true` enables 1 retry on `no_effect`, or keyboard `focus` + `Enter` once on a wrapped `link`). Default is `false` for `click`/`upload`/`press` (at-most-once on the same element) and `true` for `fill`/`check`/`select` |
 | `decide` | all except `press` | `true` skips Tier 1 and sends candidates directly to Tier 2 (cannot combine with `nth` or `match`) |
+| `timeout_s` | all except `press` | Optional per-step override (seconds, `>= 0`) for element appearance/settle wait |
 
 ### Top-level fields
 
 - `steps` (required): non-empty list of step objects.
 - `url`: initial URL to open before step 1 (required when `reset: true`; omit to continue from the current page in `--session`).
 - `goal`: context string passed to Tier 2.
-- `reset`: `true` launches a fresh isolated session with Chrome's password manager disabled (closed on success or interrupt unless `--keep-open` is passed; kept open on failure for takeover). When reusing an existing `--session`, pass `--no-open` (keep current page) or `--reload` (reload `url` inside the warm Chrome without relaunching).
+- `vars`: optional object of default template variables (`{{key}}` in `url`/`goal`/`target`/`value`/`describe`, exposed as `VARS` in `verify`; overridden by CLI `--var key=value`).
+- `reset`: `true` launches a fresh isolated session with Chrome's password manager disabled (attempts to close and delete the temp profile on success unless `--keep-open` is passed, and on caught `SIGINT`/`SIGTERM` even with `--keep-open`; kept open on failure for takeover). When reusing an existing `--session`, pass `--no-open` (keep current page) or `--reload` (reload `url` inside the warm Chrome without relaunching).
 - `settle_s`: optional max seconds to wait for each element to appear and settle before failing to Tier 2/3 (default `3.0`; `0` fails fast on the first snapshot). Individual non-`press` steps can also set `timeout_s` to override.
 - `verify`: JavaScript expression polled for up to `verify_timeout_s` (default `10`). JSON-serialisable truthy results (including `{}` and `[]`) or `{"passed": true}` pass; non-JSON output (`undefined`, `NaN`, syntax errors), non-zero exits, and `{"passed": false}` fail.
 
 ## Output & takeover
 
-`run` prints structured JSON to stdout. On success with `reset: true`, the session is closed automatically (`session_open: false`). On failure, the session stays open (`session_open: true`) so you or an agent can inspect and continue from `stopped_at_step`:
+`run` prints structured JSON to stdout. On success with `reset: true`, the runner attempts to close the session automatically (`session_open: false`; if `close` itself fails, `ok: true` and `session_open: true` can coexist). On failure, the session stays open (`session_open: true`) so you or an agent can inspect actual page state and decide how to continue:
 
 ```json
 {
@@ -128,12 +130,14 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 }
 ```
 
-Continue from the failed step without re-running completed steps:
+Before resuming, confirm the actual applied state from `stopped_snapshot` (especially after partial batch writes). Use `--from-step N` only when every step from `N` onward is safe to run — if step `N` is unapplied while a later step (`N+1`, etc.) was already applied, finish only the unapplied steps directly or with a trimmed plan (see [`SECURITY.md`](SECURITY.md) and [`docs/sessions.md`](docs/sessions.md)):
 
 ```bash
-# Option 1: inspect & finish directly with agent-browser
+# Option 1: inspect live state first, then act using the ref from that fresh snapshot
 agent-browser --session abd-1763574000000-12345 snapshot -i
-agent-browser --session abd-1763574000000-12345 click @e12
+# Confirm the step is still unapplied (and get human approval on side-effecting pages),
+# then replace <ref> with the element ref shown above:
+agent-browser --session abd-1763574000000-12345 click @<ref>
 agent-browser --session abd-1763574000000-12345 close
 
 # Option 2: fix the plan and resume from step 4 in the same session
@@ -158,7 +162,7 @@ python -m agent_browser_decisions --help
 
 - `0` — all steps ran and verified (`verified: null` when `verify` is omitted), or `validate` / `doctor` passed.
 - `1` — step failure, `verify` failure, runtime/browser/API error, interrupt, or `doctor` missing `agent-browser`.
-- `2` — invalid plan JSON, schema violation, undefined `{{var}}`, incompatible CLI options (`reset: true` + `--session` without `--no-open`, `--from-step > 1` / `--no-open` / `--close` without `--session`), or missing `value_env`.
+- `2` — invalid plan JSON, schema violation (checked by `validate_plan`, matching `schema/plan.schema.json`), undefined `{{var}}` (when `vars` or `--var` is present), incompatible CLI options (`reset: true` + `--session` without `--no-open`/`--reload`, `--from-step > 1` / `--no-open` / `--close` without `--session`), or missing `value_env`.
 
 ### Environment variables
 
@@ -173,6 +177,7 @@ python -m agent_browser_decisions --help
 | `LIQUID_API_KEY` | — | Liquid AI System One API key (`/decisions/v1/systemone`, default model `d1.2`) |
 | `DECISION_PROVIDER` | auto | `openai`, `openrouter`, `gemini`, `typesafe`, or `liquid` (auto-detected from `--model` / available key when omitted; `vendor/model` IDs infer `openrouter`) |
 | `DECISION_MODEL` | per provider | Override Tier 2 model ID (e.g. `gpt-6-luna`, `gemini-decision-1`, `jev-latest`, `d1.2-ultra`) |
+| `DECISION_API_KEY` | — | Generic Tier 2 API key fallback when a provider-specific key is not set |
 | `DECISION_BASE_URL` | per provider | Override Tier 2 base URL or full `/decisions` / `/systemone` endpoint (e.g. OpenRouter or self-hosted `d1`) |
 | `AGENT_BROWSER_DECISIONS_ENV_FILE` | — | Default `.env` file path when `--env-file` is omitted |
 | `AGENT_BROWSER_SESSION` | `default` | Fallback session name used by `agent-browser` when neither `reset: true` nor `--session` is set |
@@ -187,27 +192,29 @@ python -m agent_browser_decisions --help
 | `typesafe` | System One | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
 | `liquid` | System One | `d1.2` | `https://api.liquid.ai/decisions/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
 
+> Note: In `v0.9.10`, all 5 provider wire formats are verified via mock and property tests; live remote endpoint runs were not re-executed for `v0.9.10`.
+
 ## Effect checks
 
-Steps act only on a settled page (two consecutive identical snapshots). Exhausted `no_effect` or `wrong_target` steps stop the plan with `ok: false` at `stopped_at_step`.
+Non-`press` steps wait for a settled page (two consecutive identical snapshots, or a single match when `settle_s` expires; post-effect snapshots may be reused across steps). Exhausted `no_effect` or `wrong_target` steps stop the plan with `ok: false` at `stopped_at_step` (see [`docs/sessions.md`](docs/sessions.md) for full lifecycle details).
 
 | Action | Verification | On failure (unless `once: true`) |
 | --- | --- | --- |
 | `fill` | Field read-back equals expected value (preserves whitespace & newlines) | Repeat once |
 | `check` | `is checked` returns `true` | Repeat once |
 | `select` | Unchecked (`ok`) — assert selected state in `verify` when critical | — |
-| `link` click (`navigates` ≠ `false`), `expect: "navigation"` | Document URL changes (or fragment changes for `#route` links) | Stop immediately by default (safe at-most-once on same element). With `retry: true`, tries keyboard `focus` + `Enter` once (max 2 activations). With `--decisions` Tier 2 (unless `once: true`), may exclude ref and try another candidate |
-| Other `click`, `press` | Snapshot or URL changes within 1 s | Stop immediately by default (`click` retries once only when `retry: true`) |
+| `link` click (`navigates` ≠ `false`), `expect: "navigation"` (`click`/`press`/`upload`) | Document URL changes (or fragment changes for `#route` links) | Stop immediately by default (single-shot on same element). With `retry: true`, tries `focus` + `Enter` once for links or repeats once for non-link `click`/`upload` (`press` disallows `retry`). When Tier 2 chose the ref (unless `once: true`), may exclude ref and try another candidate |
+| Other `click`, `upload`, `press` | Snapshot or URL changes within 1 s | Stop immediately by default (`click`/`upload` retries once only when `retry: true`; `press` disallows `retry`) |
 
 ## Safety & operational guarantees
 
-- **Opt-in Tier 2 & bounded model surface**: Tier 2 is disabled by default so ambient API keys never send page URLs, candidate labels, or visible field values to external endpoints unless you pass `--decisions` (or `--provider` / `--model` / `--mode decide`). When enabled, candidate descriptions include visible non-secret field values/attributes (only `value_env` / `secret: true` values are redacted), and Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
+- **Opt-in Tier 2 & bounded model surface**: Tier 2 is disabled by default so ambient API keys never send page URLs, candidate labels, or visible field values to external endpoints unless you pass `--decisions` (or `--provider` / `--model` / `--base-url` / `--mode decide`). Implicit `./.env` loading is restricted to known API keys, `DECISION_PROVIDER`, and `DECISION_MODEL`; pass `--env-file` or `AGENT_BROWSER_DECISIONS_ENV_FILE` explicitly to load all keys. When enabled, candidate descriptions include visible field values, attributes, and surrounding context — only known resolved `value_env` / `secret: true` strings are redacted, so unknown page secrets or PII can still be sent (confirm page contents and destination endpoint before enabling). Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
 - **Unicode & injection safety**: Normalisation preserves non-ASCII scripts (Japanese, CJK, Cyrillic, Greek, dakuten) and rejects empty labels. Snapshot parsing uses escape-aware quoting so embedded `\" [ref=eN]` strings in page text cannot spoof element refs.
-- **Fresh `stopped_snapshot` on stop**: When a run fails after executing an action or on `verify` failure (excluding `--expect-url` mismatches), the runner re-observes the open session once before returning `stopped_snapshot` (falling back to the last observed snapshot if the browser is unreachable) so resuming agents see post-action state instead of pre-click state.
+- **Fresh `stopped_snapshot` on stop**: When a run fails after executing an action or on `verify` failure (excluding `--expect-url` mismatches) and the latest observation is stale, the runner re-observes the open session once before returning `stopped_snapshot` (falling back to the last observed snapshot if unreachable) so resuming agents see post-action state.
 - **No silent misclicks or double-clicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element. `click` and `link` steps execute at most once on the same element by default (no automatic `Enter` fallback or second click unless `retry: true`). Pass `--expect-url` with `--from-step` / `--no-open` to abort before touching any step if the live session drifted to another origin or path.
-- **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets (including prior-step secrets whose env vars remain set on `--from-step`) are redacted (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, and Tier 2 candidate payloads.
-- **Fault tolerance & cleanup**: Tier 2 retries transient HTTP `429` (honouring `Retry-After`), `5xx`, and network/timeout errors with bounded backoff. `SIGINT`/`SIGTERM` closes owned sessions and deletes temporary Chrome profiles cleanly. When a `reset: true` run stops and keeps the browser open (`session_open: true`), the result JSON includes `profile` with the temporary directory path so callers can delete it after closing the session.
-- **Formally verified lifecycle**: Session ownership, profile cleanup, `session_open` reporting, `once` at-most-once execution, and non-silent failure invariants are verified against both TLA+/TLC and Hypothesis stateful tests.
+- **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets (including prior-step secrets whose env vars remain set on `--from-step`) are redacted (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, `url`, `steps[].chose`, and Tier 2 candidate payloads.
+- **Fault tolerance & cleanup**: Tier 2 retries transient HTTP `429` (honouring `Retry-After`), `5xx`, and network/timeout errors with bounded backoff. Caught `SIGINT`/`SIGTERM` attempts to close owned sessions and delete temporary Chrome profiles. When a `reset: true` run stops and keeps the browser open (`session_open: true`), the result JSON includes `profile` with the temporary directory path so callers can delete it after confirming session exit. Full security boundaries live in [`SECURITY.md`](SECURITY.md).
+- **Formally checked lifecycle**: Session ownership, profile cleanup, `session_open` reporting, `once` at-most-once execution, and non-silent failure invariants are checked by the Python Kripke/CTL model checker (`tests/test_formal_model.py`) and Hypothesis stateful tests (`tests/test_lifecycle.py`).
 
 ## Agent skill
 
@@ -250,5 +257,5 @@ MIT
 
 ## Warm-session reuse & verification
 
-- **Warm-session reuse**: Pass `--keep-open` on the first run to keep the browser alive, then reuse it with `--session <id> --reload --var ...` (resets page DOM without Chrome cold-start, ~0.38 s/run on 7-field forms) or `--no-open` (same page, ~0.26 s/run), and pass `--close` on the final run.
-- **Optimization soundness**: Contiguous retryable Tier-1 form writes (excluding `once: true` and `retry: false`) fuse into `agent-browser batch --bail` (with read-only tail `verify` and `get url`), and dynamic steps forward post-effect snapshots across steps while preserving the 2-consecutive-snapshot stability invariant. `tests/test_formal_model.py` verifies the runner state machine with a Kripke/CTL model checker (safety, termination via Tarjan non-trivial SCC, deadlock freedom) and Hypothesis-driven forward/backward simulation checks against conservative step-by-step execution.
+- **Warm-session reuse**: Pass `--keep-open` on the first run to keep the browser alive, then reuse it with `--session <id> --reload --var ...` (resets page DOM without Chrome cold-start, ~0.38 s/run on 7-field forms) or `--no-open` (same page, ~0.34 s/run), and pass `--close` on the final run.
+- **Optimization soundness**: Contiguous retryable Tier-1 form writes (excluding `once: true` and `retry: false`) fuse into `agent-browser batch --bail` (with tail `verify` — keep expressions side-effect free — and `get url`), and dynamic steps forward post-effect snapshots across steps while preserving the 2-consecutive-snapshot stability invariant. `tests/test_formal_model.py` verifies the runner state machine with a Kripke/CTL model checker (safety, termination via Tarjan non-trivial SCC, deadlock freedom) and Hypothesis-driven forward/backward simulation checks against conservative step-by-step execution.
