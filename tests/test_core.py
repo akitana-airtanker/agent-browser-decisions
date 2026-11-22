@@ -265,8 +265,9 @@ def test_decision_choices_are_bounded_observed_refs(elements: list[dict], target
     request = decision_request({"action": "click", "target": target}, "goal", elements, "https://x.test")
     values = [c["value"] for c in request["questions"][0]["choices"]]
     observed = {e["ref"] for e in elements}
-    assert 0 < len(values) <= MAX_CHOICES
-    assert set(values) <= observed
+    assert 2 <= len(values) <= MAX_CHOICES
+    assert NONE_CHOICE in values
+    assert set(values) - {NONE_CHOICE} <= observed
     assert len(values) == len(set(values))
 
 
@@ -479,11 +480,17 @@ def test_decision_request_bounds_and_wire_shape_across_all_providers(
     assert req["model"] == spec.default_model
 
     if spec.protocol == "openai":
-        values = [c["value"] for c in req["questions"][0]["choices"]]
-        assert "context" in req
-        assert req["questions"][0]["allow_abstention"] is True
-        assert 0 < len(values) <= MAX_CHOICES
-        assert set(values) <= observed
+        q = req["questions"][0]
+        values = [c["value"] for c in q["choices"]]
+        assert "input" in req
+        assert q["type"] == "choice"
+        assert q["name"] == "element"
+        assert "instructions" in q
+        assert 2 <= len(values) <= MAX_CHOICES
+        assert NONE_CHOICE in values
+        real_refs = set(values) - {NONE_CHOICE}
+        assert 0 < len(real_refs) <= MAX_CHOICES - 1
+        assert real_refs <= observed
         assert len(values) == len(set(values))
     else:
         context_key = "input" if spec.protocol == "gemini" else "state"
@@ -508,12 +515,26 @@ def test_chosen_ref_round_trips_openai_systemone_and_gemini_payloads(
     confidence: float,
     abstain: bool,
 ) -> None:
-    openai_payload = (
+    # OpenAI Decisions GA list-based answers payload
+    openai_ga_choice = NONE_CHOICE if abstain else ref
+    openai_ga_payload = {
+        "answers": [{"type": "choice", "name": "element", "choice": openai_ga_choice, "confidence": confidence}]
+    }
+    got_ga_ref, got_ga_info = chosen_ref(openai_ga_payload)
+    assert (
+        (got_ga_ref is None and got_ga_info == "abstained")
+        if abstain
+        else (got_ga_ref == ref and got_ga_info == confidence)
+    )
+    assert chosen_ref({"answers": [{"type": "refusal", "name": "element", "reason": "policy"}]}) == (None, "policy")
+
+    # Legacy OpenAI preview payload compatibility
+    openai_legacy_payload = (
         {"decisions": [{"id": "element", "status": "abstained", "abstention_reason": "none_match"}]}
         if abstain
         else {"decisions": [{"id": "element", "status": "answered", "choice": ref, "confidence": confidence}]}
     )
-    got_ref, got_info = chosen_ref(openai_payload)
+    got_ref, got_info = chosen_ref(openai_legacy_payload)
     assert (got_ref is None and got_info == "none_match") if abstain else (got_ref == ref and got_info == confidence)
 
     s1_choice = NONE_CHOICE if abstain else ref
@@ -682,6 +703,14 @@ def test_select_tier1_batch_batches_form_steps_and_stops_at_dynamic_or_duplicate
     rows_bad_val = list(rows_ok)
     rows_bad_val[4] = {"index": 4, "success": True, "result": {"value": "wrong"}}
     assert verify_batch_results(batch, rows_bad_val, check_map) == 1
+
+    # Mid-batch action failure under --bail stops before trailing checks run:
+    # checked leading steps whose verification rows never ran must NOT be counted as verified.
+    rows_mid_bail = [
+        {"index": 0, "success": True, "result": {"filled": "@e1"}},
+        {"index": 1, "success": False, "error": "timeout"},
+    ]
+    assert verify_batch_results(batch, rows_mid_bail, check_map) == 0
 
     # Combobox fill is never batched
     combo_steps = [

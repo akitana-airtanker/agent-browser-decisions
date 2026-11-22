@@ -421,18 +421,25 @@ def decision_request(
         "Which observed element should this step act on?"
     )
     if spec.protocol == "openai":
+        choices = [
+            {"value": e["ref"], "description": redact_text(describe(e), secrets)}
+            for e in candidates[: MAX_CHOICES - 1]
+        ]
+        choices.append(
+            {
+                "value": NONE_CHOICE,
+                "description": "None of the observed elements matches this step",
+            }
+        )
         return {
             "model": resolved_model,
-            "context": context_text,
+            "input": context_text,
             "questions": [
                 {
-                    "id": "element",
-                    "prompt": prompt_text,
-                    "choices": [
-                        {"value": e["ref"], "description": redact_text(describe(e), secrets)}
-                        for e in candidates[:MAX_CHOICES]
-                    ],
-                    "allow_abstention": True,
+                    "type": "choice",
+                    "name": "element",
+                    "instructions": f"{prompt_text} Choose {NONE_CHOICE} if none matches.",
+                    "choices": choices,
                 }
             ],
         }
@@ -475,12 +482,22 @@ def chosen_ref(response: Any) -> tuple[str | None, Any]:
 
     if "answers" in response or "prompt_feedback" in response:
         answers = response.get("answers")
-        if not isinstance(answers, dict) or not answers:
+        answer: Any = None
+        if isinstance(answers, list):
+            for item in answers:
+                if isinstance(item, dict) and item.get("name") == "element":
+                    answer = item
+                    break
+            if answer is None and answers and isinstance(answers[0], dict):
+                answer = answers[0]
+        elif isinstance(answers, dict) and answers:
+            answer = answers.get("element")
+        else:
             feedback = response.get("prompt_feedback")
             if isinstance(feedback, dict) and feedback.get("block_reason"):
                 return None, f"blocked:{feedback['block_reason']}"
             return None, "malformed_response"
-        answer = answers.get("element")
+
         if not isinstance(answer, dict):
             return None, "malformed_response"
         if answer.get("type") == "refusal":
@@ -1040,13 +1057,14 @@ def verify_batch_results(
     if not isinstance(rows, list) or not selected:
         return 0
     n = len(selected)
-    # First check action rows 0..n-1
+    # First check action rows 0..n-1; cap verified prefix at first failing action.
+    failed_at = n
     for i in range(n):
         if i >= len(rows) or not isinstance(rows[i], dict) or rows[i].get("success") is not True:
-            return i
+            failed_at = i
+            break
 
-    # All n actions succeeded; verify every checked step in order.
-    failed_at = n
+    # Verify every checked step before failed_at actually ran and passed.
     for offset, action, row_idx in check_map:
         if offset >= failed_at:
             break

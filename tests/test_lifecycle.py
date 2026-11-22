@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -1716,3 +1717,88 @@ def test_batch_redacts_secret_in_chose() -> None:
     assert res["steps"][0]["batched"] is True
     assert secret not in json.dumps(res["steps"][0]["chose"])
     assert "[REDACTED]" in res["steps"][0]["chose"]
+
+
+def test_batch_initial_observe_timeout_returns_structured_stop() -> None:
+    """Timeout/JSON error during _try_tier1_batch initial observe must emit stop JSON, not crash."""
+
+    class TimeoutObserveBrowser(FakeBrowser):
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raise subprocess.TimeoutExpired(cmd=["agent-browser", "snapshot"], timeout=1.0)
+
+    plan = {
+        "url": "https://example.test/form",
+        "steps": [
+            {"action": "fill", "target": "Name", "value": "Alice"},
+            {"action": "fill", "target": "Email", "value": "alice@example.test"},
+        ],
+    }
+    runner = PlanRunner(
+        browser_factory=TimeoutObserveBrowser,
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res = runner.run_plan_file(plan, session="s-batch-timeout")
+    assert res["ok"] is False
+    assert res["stopped_at_step"] == 1
+    assert "timed out" in (res["steps"][0].get("error") or "")
+
+
+def test_temp_profile_path_exposed_when_session_stays_open_and_omitted_when_cleaned(tmp_path: Path) -> None:
+    """Expose result['profile'] iff reset:true created a temp profile that remains on disk."""
+    created: list[str] = []
+
+    def make_prof() -> str:
+        d = tmp_path / f"abd-prof-{len(created)}"
+        d.mkdir()
+        created.append(str(d))
+        return str(d)
+
+    class StopOnStep1Browser(FakeBrowser):
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raw = '- textbox "Other" [ref=e1]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+    # Case 1: stops mid-run -> session stays open, profile remains on disk and is reported in result
+    plan_stop = {
+        "url": "https://example.test/form",
+        "reset": True,
+        "steps": [{"action": "fill", "target": "Missing", "value": "x"}],
+    }
+    r1 = PlanRunner(
+        browser_factory=StopOnStep1Browser,
+        decisions_factory=DecisionsClient,
+        profile_factory=make_prof,
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res_stop = r1.run_plan_file(plan_stop)
+    assert res_stop["ok"] is False
+    assert res_stop["session_open"] is True
+    assert res_stop.get("profile") == created[0]
+    assert Path(created[0]).exists()
+
+    # Case 2: succeeds -> session closed, profile removed and omitted from result
+    plan_ok = {
+        "url": "https://example.test/form",
+        "reset": True,
+        "steps": [{"action": "fill", "target": "Other", "value": "x"}],
+    }
+
+    class OkBrowser(StopOnStep1Browser):
+        def field_value(self, ref: str, *, category: str = "verify") -> str:
+            return '{"value": "x"}'
+
+    r2 = PlanRunner(
+        browser_factory=OkBrowser,
+        decisions_factory=DecisionsClient,
+        profile_factory=make_prof,
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res_ok = r2.run_plan_file(plan_ok)
+    assert res_ok["ok"] is True
+    assert res_ok["session_open"] is False
+    assert "profile" not in res_ok
+    assert not Path(created[1]).exists()

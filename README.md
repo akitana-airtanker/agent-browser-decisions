@@ -76,7 +76,7 @@ Plans are JSON files validated against [`schema/plan.schema.json`](schema/plan.s
 }
 ```
 
-See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-login.json`, `hn-positional.json`).
+See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-login.json`, `hn-positional.json`) and a strict guarded stop/resume shell demo (`httpbin-demo-strict.sh`).
 
 ### Step fields
 
@@ -181,7 +181,7 @@ python -m agent_browser_decisions --help
 
 | Provider | Protocol | Default model | Endpoint | Auth header | Abstention |
 | --- | --- | --- | --- | --- | --- |
-| `openai` | OpenAI Decisions | `gpt-6-luna` | `https://api.openai.com/v1/decisions` | `Authorization: Bearer` | Native `allow_abstention: true` |
+| `openai` | OpenAI Decisions (GA) | `gpt-6-luna` | `https://api.openai.com/v1/decisions` | `Authorization: Bearer` | Explicit `__none__` option + `refusal` |
 | `openrouter` | System One | `liquid/d1.2` | `https://openrouter.ai/api/alpha/decisions` | `Authorization: Bearer` | Explicit `__none__` option + `refusal` |
 | `gemini` | Gemini Decisions | `gemini-decision-1` | `https://generativelanguage.googleapis.com/v1beta/decisions` | `x-goog-api-key` | Explicit `__none__` option + `prompt_feedback` |
 | `typesafe` | System One | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
@@ -206,7 +206,7 @@ Steps act only on a settled page (two consecutive identical snapshots). Exhauste
 - **Fresh `stopped_snapshot` on stop**: When a run fails after executing an action or on `verify` failure (excluding `--expect-url` mismatches), the runner re-observes the open session once before returning `stopped_snapshot` (falling back to the last observed snapshot if the browser is unreachable) so resuming agents see post-action state instead of pre-click state.
 - **No silent misclicks or double-clicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element. `click` and `link` steps execute at most once on the same element by default (no automatic `Enter` fallback or second click unless `retry: true`). Pass `--expect-url` with `--from-step` / `--no-open` to abort before touching any step if the live session drifted to another origin or path.
 - **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets (including prior-step secrets whose env vars remain set on `--from-step`) are redacted (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, and Tier 2 candidate payloads.
-- **Fault tolerance & cleanup**: Tier 2 retries transient HTTP `429` (honouring `Retry-After`), `5xx`, and network/timeout errors with bounded backoff. `SIGINT`/`SIGTERM` closes owned sessions and deletes temporary Chrome profiles cleanly.
+- **Fault tolerance & cleanup**: Tier 2 retries transient HTTP `429` (honouring `Retry-After`), `5xx`, and network/timeout errors with bounded backoff. `SIGINT`/`SIGTERM` closes owned sessions and deletes temporary Chrome profiles cleanly. When a `reset: true` run stops and keeps the browser open (`session_open: true`), the result JSON includes `profile` with the temporary directory path so callers can delete it after closing the session.
 - **Formally verified lifecycle**: Session ownership, profile cleanup, `session_open` reporting, `once` at-most-once execution, and non-silent failure invariants are verified against both TLA+/TLC and Hypothesis stateful tests.
 
 ## Agent skill

@@ -4,7 +4,7 @@ Same-endpoint comparison scripts for `agent-browser-decisions`, `Playwright` (Py
 
 ## Measurement scope
 
-Every method in the `main` suite is measured end-to-end as wall-clock time from process launch through browser startup, task execution, identical JavaScript `verify` evaluation, and clean browser close, sharing the exact same local Chrome binary (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, headless). Execution order rotates across methods on every round to avoid order bias.
+Every method in the `main` suite is measured end-to-end as wall-clock time from process launch through browser startup, task execution, identical JavaScript `verify` evaluation, and clean browser close, with `Playwright` using local Chrome headless (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`) and `agent-browser` / `agent-browser-decisions` using `agent-browser`'s default headless Chromium. Execution order rotates across methods on every round to avoid order bias.
 
 ### Tasks
 

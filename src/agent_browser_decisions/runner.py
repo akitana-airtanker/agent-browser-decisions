@@ -729,34 +729,34 @@ class PlanRunner:
                 offset = 0
                 while completed and offset < len(resolved_steps):
                     index = from_step + offset
-                    if mode == "label":
-                        batched, batch_verified, batch_url = self._try_tier1_batch(
-                            browser,
-                            metrics,
-                            index,
-                            resolved_steps[offset:],
-                            log,
-                            verify_expr=verify_expr,
-                            settle_s=resolve_step_settle_s(
-                                resolved_steps[offset],
-                                plan_settle_s=plan.get("settle_s"),
-                                cli_settle_s=settle_s,
-                                default=self.settle_s,
-                            ),
-                            initial_page=carried_page,
-                            snapshot_tracker=snapshot_tracker,
-                            secrets=secrets,
-                        )
-                        if batched > 0:
-                            carried_page = None
-                            fused_verified = batch_verified
-                            fused_url = batch_url
-                            offset += batched
-                            continue
                     step = resolved_steps[offset]
-                    fused_verified = None
-                    fused_url = None
                     try:
+                        if mode == "label":
+                            batched, batch_verified, batch_url = self._try_tier1_batch(
+                                browser,
+                                metrics,
+                                index,
+                                resolved_steps[offset:],
+                                log,
+                                verify_expr=verify_expr,
+                                settle_s=resolve_step_settle_s(
+                                    step,
+                                    plan_settle_s=plan.get("settle_s"),
+                                    cli_settle_s=settle_s,
+                                    default=self.settle_s,
+                                ),
+                                initial_page=carried_page,
+                                snapshot_tracker=snapshot_tracker,
+                                secrets=secrets,
+                            )
+                            if batched > 0:
+                                carried_page = None
+                                fused_verified = batch_verified
+                                fused_url = batch_url
+                                offset += batched
+                                continue
+                        fused_verified = None
+                        fused_url = None
                         step_ok, carried_page = self._run_step(
                             browser,
                             decisions,
@@ -884,6 +884,8 @@ class PlanRunner:
                 for e in log
             ],
         }
+        if profile:
+            result["profile"] = profile
         if not ok and session_open and snapshot_tracker.raw:
             stopped_snap = format_stopped_snapshot(snapshot_tracker.raw, secrets)
             if stopped_snap:

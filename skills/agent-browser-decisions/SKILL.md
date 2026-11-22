@@ -130,7 +130,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 | `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
 - **引き継ぎと反例駆動の手順書精密化（CEGAR ループ）**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っており、観測済みの場合は **`stopped_snapshot`**（停止時点の実スナップショット、機密値伏字済み）が JSON に同梱される。`stopped_at_step`・`stopped_snapshot`・`steps[]` をそのまま反例として読み、次のどちらかで続ける。
-  - 途中再開と手順書の更新（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、停止時の `url` を添えて `agent-browser-decisions run <plan.json> --session <session> --from-step <stopped_at_step> --expect-url "<url>" --close` で再開する（step 1 から丸ごと再実行しない）。完走した修正版は差分を示し、共有 `plans/` は利用者確認のうえで保存先を更新すれば次回から1発で回る。
+  - 途中再開と手順書の更新（定型化したい場合）: まず `steps[]` と `stopped_snapshot` で `stopped_at_step` が画面に未反映かを確かめ、**すでに反映済みなら同じ番号を繰り返さず `stopped_at_step + 1` から再開する**。`--expect-url` には停止結果の `url` を機械的に流用せず（誤遷移を追認するため）、**元の手順書や利用者が想定する URL プレフィックス**を指定する。ログイン済み画面や副作用を伴う操作で手順書を修正・再開する場合は、差分と再開位置（`--from-step N`）を**再開前に利用者へ提示して確認**してから `agent-browser-decisions run <plan.json> --session <session> --from-step <N> --expect-url "<intended-url>" --close` を実行する（完走後の共有 `plans/` 上書きも差分確認のうえで行う）。なお `reset: true` の失敗後に別コマンドで閉じた場合、結果 JSON の `profile` パスが一時ディレクトリとして残るため不要なら `rm -rf` で掃除する。
   - 直接操作: 1〜2手の例外処理なら開いたままの `--session <session>` で直接 `click @eN` … → 終わったら `agent-browser --session <session> close`。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。
