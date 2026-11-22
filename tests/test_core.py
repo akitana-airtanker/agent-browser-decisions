@@ -697,6 +697,31 @@ def test_select_tier1_batch_batches_form_steps_and_stops_at_dynamic_or_duplicate
     ]
     assert select_tier1_batch(dup_steps, elements) == []
 
+    # Steps with once=True or retry=False are excluded from speculative batching
+    assert select_tier1_batch(
+        [
+            {"action": "fill", "target": "Name", "value": "A", "once": True},
+            {"action": "fill", "target": "Email", "value": "b@example.com"},
+        ],
+        elements,
+    ) == []
+    assert select_tier1_batch(
+        [
+            {"action": "fill", "target": "Name", "value": "A"},
+            {"action": "fill", "target": "Email", "value": "b@example.com", "retry": False},
+        ],
+        elements,
+    ) == []
+    leading = select_tier1_batch(
+        [
+            {"action": "fill", "target": "Name", "value": "A"},
+            {"action": "fill", "target": "Email", "value": "b@example.com"},
+            {"action": "check", "target": "Large", "role": "radio", "once": True},
+        ],
+        elements,
+    )
+    assert [s["target"] for s, _ in leading] == ["Name", "Email"]
+
 
 def test_validate_run_options_no_open_and_close_rules() -> None:
     plan = {"url": "https://example.com", "reset": True, "steps": [{"action": "click", "target": "Go"}]}

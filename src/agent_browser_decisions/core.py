@@ -948,7 +948,11 @@ def select_tier1_batch(
         action = step.get("action")
         if action not in BATCHABLE_ACTIONS:
             break
-        if step.get("decide") is True or step.get("expect") == "navigation":
+        if (
+            step.get("decide") is True
+            or step.get("expect") == "navigation"
+            or not should_retry_step(step)
+        ):
             break
         element, status = match_label(step, elements)
         if status != "hit" or element is None:

@@ -438,6 +438,8 @@ class ConservativeSimulatedBrowser:
         self.values: dict[str, str] = {}
         self.checked: dict[str, bool] = {}
         self.clicks: list[str] = []
+        self.fill_calls: list[tuple[str, str]] = []
+        self.check_calls: list[str] = []
         self.uploads: list[tuple[str, str]] = []
         self.url = "https://sim.example/form"
         self.closed = False
@@ -478,11 +480,13 @@ class ConservativeSimulatedBrowser:
         op = cmd[0]
         if op == "fill":
             ref, val = cmd[1].lstrip("@"), cmd[2]
+            self.fill_calls.append((ref, val))
             if ref not in self.drop_value_refs:
                 self.values[ref] = val
             return True, {}
         if op == "check":
             ref = cmd[1].lstrip("@")
+            self.check_calls.append(ref)
             if ref not in self.uncheckable_refs:
                 self.checked[ref] = True
             return True, {}
@@ -801,3 +805,44 @@ def test_cegar_counterexample_snapshot_and_resume() -> None:
     assert res2["session_open"] is False
     assert "stopped_snapshot" not in res2
     assert browser.uploads == [("e4", "/tmp/cv.pdf")]
+
+
+def test_once_and_no_retry_form_steps_never_double_execute_via_batch_fallback() -> None:
+    """Steps with once=True or retry=False must never enter batch fusion and execute at most once."""
+    fields = [
+        ("e1", "textbox", "Name"),
+        ("e2", "textbox", "Email"),
+        ("e3", "checkbox", "AutoSave"),
+    ]
+    for flag in ({"once": True}, {"retry": False}):
+        # Case A: non-retryable fill at step 1 fails effect check -> strictly 1 fill call, no batch+fallback double run
+        b1 = SimulatedBrowser(fields=fields, drop_value_refs={"e1"})
+        res1 = _make_runner(b1, disable_batch=False).run_plan_file(
+            {
+                "url": "https://sim.example/form",
+                "steps": [
+                    {"action": "fill", "target": "Name", "value": "Taro", **flag},
+                    {"action": "fill", "target": "Email", "value": "taro@example.com"},
+                ],
+            }
+        )
+        assert res1["ok"] is False
+        assert res1["stopped_at_step"] == 1
+        assert b1.fill_calls == [("e1", "Taro")]
+
+        # Case B: normal leading fills batch safely, then trailing non-retryable check executes strictly once
+        b2 = SimulatedBrowser(fields=fields, uncheckable_refs={"e3"})
+        res2 = _make_runner(b2, disable_batch=False).run_plan_file(
+            {
+                "url": "https://sim.example/form",
+                "steps": [
+                    {"action": "fill", "target": "Name", "value": "Taro"},
+                    {"action": "fill", "target": "Email", "value": "taro@example.com"},
+                    {"action": "check", "target": "AutoSave", **flag},
+                ],
+            }
+        )
+        assert res2["ok"] is False
+        assert res2["stopped_at_step"] == 3
+        assert b2.fill_calls == [("e1", "Taro"), ("e2", "taro@example.com")]
+        assert b2.check_calls == ["e3"]
