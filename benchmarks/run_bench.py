@@ -17,6 +17,7 @@ import os
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -327,21 +328,89 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
     return out
 
 
+
+
+def run_flights_resume_suite(rounds: int) -> dict:
+    """Compare live-session resume (--from-step 12) vs full restart from step 1 on Google Flights."""
+    fl_plan_data = json.loads((PLANS_DIR / "flights.json").read_text(encoding="utf-8"))
+    broken_data = json.loads(json.dumps(fl_plan_data))
+    broken_data["steps"][-1]["target"] = "Find flights"
+
+    results: dict[str, list[dict]] = {
+        "flights_stop_step12": [],
+        "flights_resume_step12": [],
+        "flights_restart_step1": [],
+    }
+    with tempfile.TemporaryDirectory() as td:
+        broken_path = Path(td) / "flights_broken.json"
+        fixed_path = Path(td) / "flights_fixed.json"
+        broken_path.write_text(json.dumps(broken_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        fixed_path.write_text(json.dumps(fl_plan_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        for r in range(rounds):
+            # Alternate order per round to avoid order bias
+            order = ["resume", "restart"] if r % 2 == 0 else ["restart", "resume"]
+            for mode in order:
+                if mode == "resume":
+                    stop_res = run_abd(broken_path, ["--keep-open"])
+                    sid = stop_res.get("session")
+                    stop_ok = (
+                        stop_res.get("stopped_at_step") == 12
+                        and stop_res.get("session_open") is True
+                        and bool(sid)
+                    )
+                    results["flights_stop_step12"].append({**stop_res, "ok": stop_ok})
+                    try:
+                        if sid and stop_ok:
+                            res = run_abd(
+                                fixed_path,
+                                ["--session", sid, "--from-step", "12", "--close"],
+                            )
+                        else:
+                            res = {"ok": False, "wall_s": 0.0, "error": "did not stop cleanly at step 12"}
+                        results["flights_resume_step12"].append(res)
+                        print(
+                            f"[flights_resume R{r + 1}] stop={stop_res['wall_s']}s "
+                            f"resume_step12: ok={res['ok']} wall_s={res['wall_s']}",
+                            flush=True,
+                        )
+                    finally:
+                        if sid:
+                            subprocess.run(
+                                ["agent-browser", "--session", sid, "close"],
+                                capture_output=True,
+                                check=False,
+                            )
+                else:
+                    res = run_abd(fixed_path)
+                    results["flights_restart_step1"].append(res)
+                    print(
+                        f"[flights_resume R{r + 1}] restart_step1: ok={res['ok']} wall_s={res['wall_s']}",
+                        flush=True,
+                    )
+    return {"rounds": rounds, "summary": summarize(results), "raw": results}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--suite", choices=["main", "reuse", "drift", "all"], default="all")
+    ap.add_argument("--suite", choices=["main", "reuse", "drift", "flights_resume", "all"], default="all")
     ap.add_argument("--rounds", type=int, default=5)
     ap.add_argument("--chrome", type=str, default=DEFAULT_CHROME)
     ap.add_argument("--out", type=str, required=True)
     args = ap.parse_args()
 
-    out: dict = {"chrome": args.chrome}
+    ver = subprocess.run(
+        ["agent-browser-decisions", "--version"], capture_output=True, check=False, text=True
+    ).stdout.strip()
+    out: dict = {"chrome": args.chrome, "abd_version": ver}
     if args.suite in ("main", "all"):
         out["main"] = run_main_suite(args.rounds, args.chrome, sys.executable)
     if args.suite in ("reuse", "all"):
         out["reuse"] = run_reuse_suite(args.rounds)
     if args.suite in ("drift", "all"):
         out["drift"] = run_drift_suite(args.chrome, sys.executable)
+    if args.suite in ("flights_resume", "all"):
+        out["flights_resume"] = run_flights_resume_suite(args.rounds)
 
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"\nSaved results to {args.out}")

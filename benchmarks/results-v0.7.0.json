@@ -1,0 +1,733 @@
+{
+  "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "abd_version": "agent-browser-decisions 0.7.0",
+  "main": {
+    "rounds": 5,
+    "summary": {
+      "httpbin_playwright": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.52,
+        "min_ok_s": 1.43,
+        "max_ok_s": 5.0,
+        "median_all_s": 1.52
+      },
+      "httpbin_batch": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.36,
+        "min_ok_s": 1.31,
+        "max_ok_s": 2.08,
+        "median_all_s": 1.36
+      },
+      "httpbin_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.48,
+        "min_ok_s": 1.46,
+        "max_ok_s": 1.67,
+        "median_all_s": 1.48
+      },
+      "flights_playwright": {
+        "passed": 3,
+        "total": 5,
+        "median_ok_s": 3.49,
+        "min_ok_s": 3.24,
+        "max_ok_s": 3.96,
+        "median_all_s": 3.96
+      },
+      "flights_batch_wait": {
+        "passed": 4,
+        "total": 5,
+        "median_ok_s": 3.17,
+        "min_ok_s": 3.16,
+        "max_ok_s": 3.24,
+        "median_all_s": 3.16
+      },
+      "flights_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 3.58,
+        "min_ok_s": 3.5,
+        "max_ok_s": 4.88,
+        "median_all_s": 3.58
+      }
+    },
+    "raw": {
+      "httpbin_playwright": [
+        {
+          "ok": true,
+          "wall_s": 4.998,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.519,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.745,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.497,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.432,
+          "error": null
+        }
+      ],
+      "httpbin_batch": [
+        {
+          "ok": true,
+          "wall_s": 1.314,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-62032-1795320841911",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.32,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-62032-1795320854835",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.084,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-62032-1795320873435",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.358,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-62032-1795320902601",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.362,
+          "verify": true,
+          "steps_ran": 10,
+          "steps_total": 10,
+          "session": "bench-hb-batch-62032-1795320928327",
+          "error": null
+        }
+      ],
+      "httpbin_abd": [
+        {
+          "ok": true,
+          "wall_s": 1.49,
+          "internal_ms": 1432,
+          "stopped_at_step": null,
+          "session": "abd-1795320843381-62102",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.457,
+          "internal_ms": 1402,
+          "stopped_at_step": null,
+          "session": "abd-1795320856316-62300",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.672,
+          "internal_ms": 1627,
+          "stopped_at_step": null,
+          "session": "abd-1795320870056-62481",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.455,
+          "internal_ms": 1407,
+          "stopped_at_step": null,
+          "session": "abd-1795320904110-64419",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.476,
+          "internal_ms": 1421,
+          "stopped_at_step": null,
+          "session": "abd-1795320929849-65088",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "flights_playwright": [
+        {
+          "ok": true,
+          "wall_s": 3.237,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.96,
+          "error": null
+        },
+        {
+          "ok": false,
+          "wall_s": 17.32,
+          "error": "    - waiting 500ms"
+        },
+        {
+          "ok": false,
+          "wall_s": 17.134,
+          "error": "    - waiting 500ms"
+        },
+        {
+          "ok": true,
+          "wall_s": 3.486,
+          "error": null
+        }
+      ],
+      "flights_batch_wait": [
+        {
+          "ok": true,
+          "wall_s": 3.161,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-62032-1795320848059",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.17,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-62032-1795320859244",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.157,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-62032-1795320897834",
+          "error": null
+        },
+        {
+          "ok": false,
+          "wall_s": 1.219,
+          "verify": null,
+          "steps_ran": 6,
+          "steps_total": 21,
+          "session": "bench-fl-batch-62032-1795320922657",
+          "error": "4 elements have role \"combobox\", but none match name \"Where else?\". Names seen: \"Change ticket type. Round trip\", \"Change seating class. Economy\", \"Where from?\", \"Where to? \""
+        },
+        {
+          "ok": true,
+          "wall_s": 3.242,
+          "verify": true,
+          "steps_ran": 21,
+          "steps_total": 21,
+          "session": "bench-fl-batch-62032-1795320932710",
+          "error": null
+        }
+      ],
+      "flights_abd": [
+        {
+          "ok": true,
+          "wall_s": 3.501,
+          "internal_ms": 3444,
+          "stopped_at_step": null,
+          "session": "abd-1795320851384-62188",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.528,
+          "internal_ms": 3482,
+          "stopped_at_step": null,
+          "session": "abd-1795320862569-62363",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 4.879,
+          "internal_ms": 4795,
+          "stopped_at_step": null,
+          "session": "abd-1795320875709-62626",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 4.323,
+          "internal_ms": 4270,
+          "stopped_at_step": null,
+          "session": "abd-1795320924050-64971",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.575,
+          "internal_ms": 3523,
+          "stopped_at_step": null,
+          "session": "abd-1795320936110-65174",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ]
+    }
+  },
+  "reuse": {
+    "rounds": 5,
+    "summary": {
+      "abd_cold": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.51,
+        "min_ok_s": 1.45,
+        "max_ok_s": 1.57,
+        "median_all_s": 1.51
+      },
+      "abd_reload": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.4,
+        "min_ok_s": 0.4,
+        "max_ok_s": 0.52,
+        "median_all_s": 0.4
+      },
+      "abd_no_open": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.32,
+        "min_ok_s": 0.31,
+        "max_ok_s": 0.33,
+        "median_all_s": 0.32
+      }
+    },
+    "raw": {
+      "abd_cold": [
+        {
+          "ok": true,
+          "wall_s": 1.475,
+          "internal_ms": 1434,
+          "stopped_at_step": null,
+          "session": "abd-1795320943162-65282",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.511,
+          "internal_ms": 1470,
+          "stopped_at_step": null,
+          "session": "abd-1795320944637-65305",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.521,
+          "internal_ms": 1478,
+          "stopped_at_step": null,
+          "session": "abd-1795320946149-65329",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.574,
+          "internal_ms": 1530,
+          "stopped_at_step": null,
+          "session": "abd-1795320947671-65391",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.446,
+          "internal_ms": 1405,
+          "stopped_at_step": null,
+          "session": "abd-1795320949242-65441",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "abd_reload": [
+        {
+          "ok": true,
+          "wall_s": 0.401,
+          "internal_ms": 355,
+          "stopped_at_step": null,
+          "session": "abd-1795320950689-65464",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.399,
+          "internal_ms": 351,
+          "stopped_at_step": null,
+          "session": "abd-1795320950689-65464",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.4,
+          "internal_ms": 354,
+          "stopped_at_step": null,
+          "session": "abd-1795320950689-65464",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.4,
+          "internal_ms": 352,
+          "stopped_at_step": null,
+          "session": "abd-1795320950689-65464",
+          "session_open": true,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.518,
+          "internal_ms": 471,
+          "stopped_at_step": null,
+          "session": "abd-1795320950689-65464",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "abd_no_open": [
+        {
+          "ok": true,
+          "wall_s": 0.309,
+          "internal_ms": 259,
+          "stopped_at_step": null,
+          "session": "bench-noopen-62032-0",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.316,
+          "internal_ms": 266,
+          "stopped_at_step": null,
+          "session": "bench-noopen-62032-1",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.322,
+          "internal_ms": 271,
+          "stopped_at_step": null,
+          "session": "bench-noopen-62032-2",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.328,
+          "internal_ms": 276,
+          "stopped_at_step": null,
+          "session": "bench-noopen-62032-3",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.317,
+          "internal_ms": 267,
+          "stopped_at_step": null,
+          "session": "bench-noopen-62032-4",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ]
+    }
+  },
+  "drift": {
+    "playwright_default_timeout3s": {
+      "ok": false,
+      "wall_s": 4.373,
+      "error": "  - waiting for get_by_role(\"radio\", name=\"Extra Large\")"
+    },
+    "batch_bail": {
+      "ok": false,
+      "wall_s": 1.139,
+      "verify": null,
+      "steps_ran": 5,
+      "steps_total": 10,
+      "session": "bench-drift-batch-62032-1795320966914",
+      "error": "3 elements have role \"radio\", but none match name \"Extra Large\". Names seen: \"Small\", \"Medium\", \"Large\"",
+      "session_kept_custname": "\"Taro Yamada\""
+    },
+    "abd_stop": {
+      "ok": false,
+      "wall_s": 4.356,
+      "internal_ms": 4310,
+      "stopped_at_step": 4,
+      "session": "abd-1795320968223-65746",
+      "session_open": true,
+      "stopped_snapshot_lines": 15,
+      "error": ""
+    },
+    "abd_kept_custname": "\"Taro Yamada\"",
+    "abd_resume_from_step_4": {
+      "ok": true,
+      "wall_s": 0.26,
+      "internal_ms": 215,
+      "stopped_at_step": null,
+      "session": "abd-1795320968223-65746",
+      "session_open": false,
+      "stopped_snapshot_lines": 0,
+      "error": null
+    },
+    "abd_resume_from_step_5_after_direct_op": {
+      "ok": true,
+      "wall_s": 0.265,
+      "internal_ms": 221,
+      "stopped_at_step": null,
+      "session": "abd-1795320972965-65828",
+      "session_open": false,
+      "stopped_snapshot_lines": 0,
+      "error": null
+    }
+  },
+  "flights_resume": {
+    "rounds": 5,
+    "summary": {
+      "flights_stop_step12": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 6.41,
+        "min_ok_s": 6.3,
+        "max_ok_s": 6.88,
+        "median_all_s": 6.41
+      },
+      "flights_resume_step12": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.39,
+        "min_ok_s": 0.36,
+        "max_ok_s": 0.4,
+        "median_all_s": 0.39
+      },
+      "flights_restart_step1": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 3.86,
+        "min_ok_s": 3.63,
+        "max_ok_s": 3.96,
+        "median_all_s": 3.86
+      }
+    },
+    "raw": {
+      "flights_stop_step12": [
+        {
+          "ok": true,
+          "wall_s": 6.885,
+          "internal_ms": 6833,
+          "stopped_at_step": 12,
+          "session": "abd-1795320977721-65905",
+          "session_open": true,
+          "stopped_snapshot_lines": 69,
+          "error": ""
+        },
+        {
+          "ok": true,
+          "wall_s": 6.412,
+          "internal_ms": 6367,
+          "stopped_at_step": 12,
+          "session": "abd-1795320992549-66324",
+          "session_open": true,
+          "stopped_snapshot_lines": 69,
+          "error": ""
+        },
+        {
+          "ok": true,
+          "wall_s": 6.358,
+          "internal_ms": 6307,
+          "stopped_at_step": 12,
+          "session": "abd-1795320999478-66520",
+          "session_open": true,
+          "stopped_snapshot_lines": 69,
+          "error": ""
+        },
+        {
+          "ok": true,
+          "wall_s": 6.301,
+          "internal_ms": 6257,
+          "stopped_at_step": 12,
+          "session": "abd-1795321014091-66834",
+          "session_open": true,
+          "stopped_snapshot_lines": 69,
+          "error": ""
+        },
+        {
+          "ok": true,
+          "wall_s": 6.533,
+          "internal_ms": 6479,
+          "stopped_at_step": 12,
+          "session": "abd-1795321020892-66970",
+          "session_open": true,
+          "stopped_snapshot_lines": 69,
+          "error": ""
+        }
+      ],
+      "flights_resume_step12": [
+        {
+          "ok": true,
+          "wall_s": 0.356,
+          "internal_ms": 314,
+          "stopped_at_step": null,
+          "session": "abd-1795320977721-65905",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.399,
+          "internal_ms": 354,
+          "stopped_at_step": null,
+          "session": "abd-1795320992549-66324",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.397,
+          "internal_ms": 347,
+          "stopped_at_step": null,
+          "session": "abd-1795320999478-66520",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.379,
+          "internal_ms": 336,
+          "stopped_at_step": null,
+          "session": "abd-1795321014091-66834",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 0.394,
+          "internal_ms": 347,
+          "stopped_at_step": null,
+          "session": "abd-1795321020892-66970",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ],
+      "flights_restart_step1": [
+        {
+          "ok": true,
+          "wall_s": 3.857,
+          "internal_ms": 3814,
+          "stopped_at_step": null,
+          "session": "abd-1795320985065-66092",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.626,
+          "internal_ms": 3584,
+          "stopped_at_step": null,
+          "session": "abd-1795320988920-66217",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.963,
+          "internal_ms": 3904,
+          "stopped_at_step": null,
+          "session": "abd-1795321006348-66635",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.789,
+          "internal_ms": 3722,
+          "stopped_at_step": null,
+          "session": "abd-1795321010326-66750",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 3.863,
+          "internal_ms": 3817,
+          "stopped_at_step": null,
+          "session": "abd-1795321027925-67261",
+          "session_open": false,
+          "stopped_snapshot_lines": 0,
+          "error": null
+        }
+      ]
+    }
+  }
+}
