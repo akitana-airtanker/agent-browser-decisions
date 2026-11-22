@@ -209,7 +209,7 @@ Steps act only on a settled page (two consecutive identical snapshots). Exhauste
 
 ## Agent skill
 
-This repository bundles an agent skill at [`skills/agent-browser-decisions/SKILL.md`](skills/agent-browser-decisions/SKILL.md) (in Japanese) for Claude Code, Codex, Pi, and other agents supporting the `SKILL.md` convention. It guides agents to discover and reuse saved plans (`plans/` or `~/.local/share/agent-browser-decisions/plans/`) via `--var`, author dynamic-UI plans in stages, and update the saved plan in place after `--from-step` recovery.
+This repository bundles an agent skill at [`skills/agent-browser-decisions/SKILL.md`](skills/agent-browser-decisions/SKILL.md) (in Japanese) for Claude Code, Codex, Pi, and other agents supporting the `SKILL.md` convention. It guides agents to reuse saved plans from trusted locations (`~/.local/share/agent-browser-decisions/plans/` or explicitly verified repo `plans/`) via `--var`, author dynamic-UI plans in stages, and review diffs before updating shared plans after `--from-step` recovery.
 
 ```bash
 npx skills add akitana-airtanker/agent-browser-decisions

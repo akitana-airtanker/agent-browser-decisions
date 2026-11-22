@@ -67,17 +67,20 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 
 機密値（ログインパスワード等）は `vars` ではなく `value_env`（例: `{"action": "fill", "target": "Password", "value_env": "APP_PASSWORD"}`）で環境変数から渡す。途中から既存セッションで再開するときは `run /tmp/plan.json --session <session> --from-step <N>` を使う。タイムアウト調整は `--timeout <秒>`（ブラウザ）/ `--api-timeout <秒>`（API）。
 
-## Plan storage, reuse & self-update
+## Plan storage, reuse & update
 
-手順書を毎回使い捨てにせず、スキル側で「探す → 再利用する → 壊れたら直して更新する」を一貫して管理する。
+手順書を毎回使い捨てにせず、スキル側の運用ルールとして「信頼できる場所から探す → 再利用する → 復旧後に確認して更新する」を管理する（CLI 本体の自動探索機能ではない）。
 
 - **保存先の優先順**:
   1. 利用者がパスを指定した場合はそのパスを使う。
-  2. リポジトリ・チームで共有する定型操作はプロジェクト内の `plans/<site>-<task>.json`（既存の `plans/` または `.agent-browser/plans/` があればそこへ揃える）。
-  3. 個人用の繰り返し操作は `~/.local/share/agent-browser-decisions/plans/<site>-<task>.json`（ディレクトリが無ければ作成）。
+  2. 個人用の繰り返し操作は `~/.local/share/agent-browser-decisions/plans/<site>-<task>.json`（ディレクトリが無ければ作成）。
+  3. チームで共有・Git 管理する定型操作は、信頼できるプロジェクト内の `plans/<site>-<task>.json`（既存の `plans/` または `.agent-browser/plans/` があればそこへ揃える）。
   4. 再利用しない1回限りの作業だけ `/tmp/plan.json` を使う。
-- **実行前の既存手順書検索**: 新規にブラウザを開いて手順書を書き始める前に、プロジェクト内の `plans/`（`.agent-browser/plans/`）と `~/.local/share/agent-browser-decisions/plans/` を探し、対象 URL／ドメインと `goal` に一致する既存手順書があればそのまま `--var` で値を差し替えて1コマンド実行する（実行前に `steps`・`verify`・`nth` の前提と、平文の機密値が含まれていないことを軽く確認する）。
-- **失敗時の復旧と保存先の自己更新**: 既存手順書が UI ラベル変化等で止まったら、`stopped_snapshot` から最小修正を入れて `--session <session> --from-step <stopped_at_step> --close` で再開し、`ok: true`・`verified: true` で完走した内容を**元の保存先ファイルへ上書き保存**して最新化する（Git 管理下なら変更点を短く報告する）。
+- **実行前の探索と信頼境界**:
+  - 自動探索の対象は **個人用ディレクトリ（`~/.local/share/agent-browser-decisions/plans/`）または利用者が明示したパス** に限る。
+  - リポジトリ内 `plans/`（`.agent-browser/plans/`）は信頼できる自前・チーム管理リポジトリに限り、**`verify`（ページ内で任意 JS を評価）と `steps` を確認したうえで実行**する。外部から clone しただけの未信頼リポジトリの `plans/` は自動探索・自動実行しない（ログイン済み永続プロファイル併用時は厳禁）。
+  - 対象 URL・`goal` に該当する候補が複数あるときは勝手に1つを選ばず、一覧を示して利用者に確認する。
+- **復旧後の更新確認**: 既存手順書が UI ラベル変化等で止まったら、`stopped_snapshot` から最小修正を入れて `--session <session> --from-step <stopped_at_step> --close` で再開する。完走（`ok: true`・`verified: true`）後、**リポジトリ共有の `plans/` への書き戻しは必ず差分を提示して利用者確認を得てから上書き**する（個人用保存先でも変更点を報告して更新する）。
 - **保存時の衛生ルール**: パスワード・トークン・機密の個人情報は保存手順書に平文で書かず `value_env` にする。可変値は `vars` / `{{KEY}}` / `VARS.*` に切り出して再利用できる形で残す。
 
 ## Plan schema
@@ -126,7 +129,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 | `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
 - **引き継ぎと反例駆動の手順書精密化（CEGAR ループ）**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っており、観測済みの場合は **`stopped_snapshot`**（停止時点の実スナップショット、機密値伏字済み）が JSON に同梱される。`stopped_at_step`・`stopped_snapshot`・`steps[]` をそのまま反例として読み、次のどちらかで続ける。
-  - 途中再開と手順書の更新（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、`agent-browser-decisions run <plan.json> --session <session> --from-step <stopped_at_step> --close` で再開する（step 1 から丸ごと再実行しない）。完走した修正版を元の保存先へ上書き保存（新規なら上記保存先へ保存）すれば次回から1発で回る。
+  - 途中再開と手順書の更新（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、`agent-browser-decisions run <plan.json> --session <session> --from-step <stopped_at_step> --close` で再開する（step 1 から丸ごと再実行しない）。完走した修正版は差分を示し、共有 `plans/` は利用者確認のうえで保存先を更新すれば次回から1発で回る。
   - 直接操作: 1〜2手の例外処理なら開いたままの `--session <session>` で直接 `click @eN` … → 終わったら `agent-browser --session <session> close`。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。
