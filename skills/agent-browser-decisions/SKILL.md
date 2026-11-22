@@ -15,7 +15,7 @@ Web 操作は、次の優先順（上が優先）で**手順書（plan JSON）**
 | 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、明示的な `frame` 切替が必要な深い・クロスオリジン iframe や AXTree に出ない独自要素、件数カウント | **`agent-browser` 直接** |
 | 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・ファイル添付・複数条件の検索・画面遷移、自動インライン展開される iframe や open Shadow DOM 内を含む。静的フォームは内部で自動的に `batch --bail` 化） | **手順書（`agent-browser-decisions`）** |
 
-- **手順書の3段階解決（同一画面フォームは自動バッチ化）**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・完全一致→前方一致、または `regex` / `nth`）で1件に絞る（モデルなし。連続する同一画面の `fill`/`check`/`select` が第1段階で一意に決まるときは内部で `agent-browser batch --bail` にまとめて高速実行し、失敗時だけ該当手から個別実行へ戻す）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
+- **手順書の3段階解決（同一画面フォームは自動バッチ化）**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・既定は完全一致のみ、明示指定で `prefix` / `regex` / `nth`）で1件に絞る（モデルなし。連続する同一画面の `fill`/`check`/`select` が第1段階で一意に決まるときは内部で `agent-browser batch --bail` にまとめて高速実行し、失敗時だけ該当手から個別実行へ戻す）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
 - **`agent-browser` 直接操作の詳細**: CLI 構文やトラブルシュートが必要なら `agent-browser skills get core` を参照する。
 
 ## Setup & Run
@@ -81,7 +81,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   - `secret`（`fill` 専用 boolean。`true` でエラー出力から値を `[REDACTED]` に伏せる。`value_env` 使用時は既定 `true`）
   - `role`（任意・`action` と互換な ARIA role のみ、`press` では不可）
   - `nth`（1 以上の整数。`decide: true` と併用不可）
-  - `match`（`"regex"` のみ。通常一致では書かない。`decide: true` と併用不可）
+  - `match`（`"exact"`（既定・省略可）/ `"prefix"`（末尾に動的状態が付くラベル向け）/ `"regex"`。`decide: true` と併用不可）
   - `describe`（判断モデルへ渡す説明文）
   - `expect`（`"navigation"` のみ）
   - `navigates`（boolean。URL 遷移しない `link` で `false` を指定）
@@ -93,7 +93,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 
 - **第2段階（Decisions API）は既定オフ**: `run` は既定で第1段階＋第3段階のみで動作し、環境変数に API キーがあっても外部 API へ URL・候補名を送らない。同名リンク等で第2段階を使いたいときだけ `--decisions`（または `--provider` / `--model` / `--mode decide`）を明示する。
 - **機密値は `value_env` を使う**: パスワード・API キー・トークンは手順書 JSON に平文で書かず、`value_env` で環境変数から渡す。
-- **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く。短縮しすぎると前方一致で別ボタン（例: `"Log in"` → `"Log in with Google"`）に当たることがある。
+- **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く（既定は完全一致のみなので、別ラベルへの誤爆は起きない）。ARIA ラベル末尾に現在の選択値などが付く UI（例: `"Change ticket type. Round trip"`）だけ、意図的に `"match": "prefix"` を付ける。
 - **動的に開く部品は手前で止めて段階作成する**: カレンダーやモーダルなど開始画面に見えない部品がある場合は、推測で全手順を一発書きせず、開くクリックまでを書いて `--keep-open` で実行し、開いた画面の `snapshot -i` を確認してから後半を手順書へ追記して `--session <id> --from-step N --close` で仕上げる。静的画面や初回検証でラベル不一致を早く検知したいときは `--settle-s 0.5`（または `0`）で早めに諦めて引き継ぐ。`role` はスナップショットで確認済みの要素にだけ書く。
 - **順番と同一ラベル**: 「3番目の結果」のような順番指定は判断モデルに数えさせず `nth` を使う（例: `{"action": "click", "target": "^\\d+\\s*comments?$", "match": "regex", "nth": 3}`）。各商品の「Add to cart」のように項目名を含まない同一ラベルが並ぶとき、順番が固定なら `nth`、並び順が変わりうるなら `agent-browser` の直接操作に切り替える。既存手順書の再実行前も `nth` の位置と対象が一致しているか確かめる。
 - **遷移・副作用・`select`**:

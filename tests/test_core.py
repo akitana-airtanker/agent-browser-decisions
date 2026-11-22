@@ -16,6 +16,7 @@ from agent_browser_decisions.core import (
     PROVIDER_ORDER,
     PROVIDERS,
     ROLES,
+    VALID_MATCH_MODES,
     apply_plan_vars,
     build_batch_commands,
     chosen_ref,
@@ -103,46 +104,63 @@ def test_normalize_preserves_japanese_dakuten_and_kanji() -> None:
     st.text(alphabet="削除保存ログイン検索追加編集戻る完了", min_size=1, max_size=8),
     st.text(alphabet="削除保存ログイン検索追加編集戻る完了", min_size=1, max_size=8),
 )
-def test_distinct_japanese_labels_never_collide_unless_prefix(target: str, element_name: str) -> None:
+def test_distinct_japanese_labels_never_collide_by_default(target: str, element_name: str) -> None:
     el = {"ref": "e1", "role": "button", "name": element_name, "attrs": "", "value": "", "context": []}
     matched, status = match_label({"action": "click", "target": target}, [el])
-    if normalize(element_name).startswith(normalize(target)):
+    if normalize(element_name) == normalize(target):
         assert (matched, status) == (el, "hit")
     else:
         assert (matched, status) == (None, "missing")
 
 
-def test_label_match_folds_accents_prefix_and_escalates_ambiguity() -> None:
+def test_label_match_defaults_to_exact_and_requires_opt_in_for_prefix() -> None:
     elements = parse_snapshot(SNAPSHOT)
     assert match_label({"action": "click", "target": "cafe"}, elements)[0]["ref"] == "e13"
     assert match_label({"action": "click", "target": "More"}, elements)[0]["ref"] == "e11"
-    assert match_label({"action": "fill", "target": "Where"}, elements) == (None, "ambiguous")
-    assert match_label({"action": "fill", "target": "Where to"}, elements)[0]["ref"] == "e79"
+    # Default exact mode never silently falls back to prefix (e.g. "Save" never hits "Save and publish").
+    assert match_label({"action": "fill", "target": "Where"}, elements) == (None, "missing")
+    assert match_label({"action": "fill", "target": "Where to"}, elements) == (None, "missing")
+    assert match_label({"action": "fill", "target": "Where to?"}, elements)[0]["ref"] == "e79"
+    # Opt-in prefix mode matches unique prefix and marks multiple prefix matches as ambiguous.
+    assert match_label({"action": "fill", "target": "Where", "match": "prefix"}, elements) == (None, "ambiguous")
+    assert match_label({"action": "fill", "target": "Where to", "match": "prefix"}, elements)[0]["ref"] == "e79"
+    assert match_label({"action": "click", "target": "More", "match": "prefix"}, elements) == (None, "ambiguous")
     assert match_label({"action": "click", "target": "   "}, elements) == (None, "missing")
+    assert match_label({"action": "click", "target": "Search", "match": "exact"}, elements)[0]["ref"] == "e42"
+    assert match_label({"action": "click", "target": "Search", "match": "invalid"}, elements) == (None, "missing")
 
 
 @given(
     st.lists(ELEMENT, min_size=1, max_size=12, unique_by=lambda e: e["ref"]),
     st.text(alphabet="abcABC 0123é日本語削除保存ログイン", min_size=0, max_size=12),
     st.sampled_from(["click", "fill", "check", "select"]),
+    st.sampled_from([None, "exact", "prefix"]),
 )
-def test_label_hit_is_unique_compatible_nonempty_and_equal_or_prefix(
+def test_label_hit_respects_exact_default_and_prefix_opt_in(
     elements: list[dict],
     target: str,
     action: str,
+    match_mode: str | None,
 ) -> None:
-    step = {"action": action, "target": target}
+    step: dict = {"action": action, "target": target}
+    if match_mode is not None:
+        step["match"] = match_mode
     matched, status = match_label(step, elements)
     pool = compatible(step, elements)
     label = normalize(target)
-    if status == "hit":
-        assert label != ""
-        assert matched in pool
-        exact = [e for e in pool if normalize(e["name"]) == label]
-        prefix = [e for e in pool if normalize(e["name"]).startswith(label)]
-        assert (len(exact) == 1 and matched == exact[0]) or (not exact and len(prefix) == 1 and matched == prefix[0])
-    elif not label:
-        assert matched is None and status == "missing"
+    if not label:
+        assert (matched, status) == (None, "missing")
+        return
+    if match_mode == "prefix":
+        expected = [e for e in pool if normalize(e["name"]).startswith(label)]
+    else:
+        expected = [e for e in pool if normalize(e["name"]) == label]
+    if len(expected) == 1:
+        assert (matched, status) == (expected[0], "hit")
+    elif len(expected) > 1:
+        assert (matched, status) == (None, "ambiguous")
+    else:
+        assert (matched, status) == (None, "missing")
 
 
 @given(
@@ -154,7 +172,12 @@ def test_nth_selects_exact_position_or_returns_missing(count: int, nth: int, use
     suffix = " details" if use_prefix else ""
     text = "\n".join(f'- link "Item{suffix}" [ref=e{i}]' for i in range(1, count + 1))
     elements = parse_snapshot(text)
-    matched, status = match_label({"action": "click", "target": "Item", "nth": nth}, elements)
+    step: dict = {"action": "click", "target": "Item", "nth": nth}
+    if use_prefix:
+        # Without match="prefix", suffix items must not match "Item".
+        assert match_label(step, elements) == (None, "missing")
+        step["match"] = "prefix"
+    matched, status = match_label(step, elements)
     if nth <= count:
         assert status == "hit" and matched["ref"] == f"e{nth}"
     else:
@@ -321,6 +344,10 @@ def test_validate_plan_enforces_structural_and_value_env_invariants() -> None:
     assert validate_plan({"reset": True, "steps": [{"action": "click", "target": "Go"}]})
     assert validate_plan({"steps": [{"action": "click", "target": "Go", "role": "heading"}]})
     assert validate_plan({"steps": [{"action": "click", "target": "Go", "decide": True, "nth": 2}]})
+    assert validate_plan({"steps": [{"action": "click", "target": "Go", "match": "exact"}]}) == []
+    assert validate_plan({"steps": [{"action": "click", "target": "Go", "match": "prefix"}]}) == []
+    assert validate_plan({"steps": [{"action": "click", "target": "Go", "match": "substring"}]})
+    assert validate_plan({"steps": [{"action": "click", "target": "Go", "decide": True, "match": "prefix"}]})
     assert validate_plan({"steps": [{"action": "click", "target": "Go", "decide": True, "match": "regex"}]})
     assert validate_plan({"steps": [{"action": "press", "value": "Enter", "target": "ignored"}]})
     assert validate_plan({"steps": [{"action": "press", "value": "Enter", "once": True}]}) == []
@@ -413,6 +440,7 @@ def test_examples_and_json_schema_match_core_contracts() -> None:
     assert set(schema["$defs"]) == {"step"}
     for action, roles in ROLES.items():
         assert set(by_action[action]["properties"]["role"]["enum"]) == roles
+        assert set(by_action[action]["properties"]["match"]["enum"]) == VALID_MATCH_MODES
         assert "if" in by_action[action] and "then" in by_action[action]
 
 

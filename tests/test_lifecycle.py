@@ -569,7 +569,7 @@ def test_resolve_nth_waits_for_kth_item_and_stops_at_tier_3_when_missing() -> No
         poll_s=0.005,
         effect_wait_s=0.02,
     )
-    plan = {"steps": [{"action": "click", "target": "Result", "nth": 3}]}
+    plan = {"steps": [{"action": "click", "target": "Result", "match": "prefix", "nth": 3}]}
 
     res_ok = runner.run_plan_file(plan)
     assert res_ok["ok"] is True
@@ -1188,3 +1188,33 @@ def test_cli_settle_s_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caps
     with pytest.raises(SystemExit) as exc:
         cli.main(["run", str(plan_path), "--settle-s", "-1"])
     assert exc.value.code == 2
+
+
+def test_default_exact_match_stops_instead_of_clicking_prefix_button() -> None:
+    """Without match='prefix', target 'Save' must not click 'Save and publish'."""
+    snaps = ['- button "Save and publish" [ref=e9]']
+    browsers: list[SequenceBrowser] = []
+
+    def make_browser(session: str | None = None, **kwargs: Any) -> SequenceBrowser:
+        b = SequenceBrowser(snaps, session=session, **kwargs)
+        browsers.append(b)
+        return b
+
+    runner = PlanRunner(
+        browser_factory=make_browser,
+        decisions_factory=FailingDecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_exact = runner.run_plan_file({"url": "https://example.test", "steps": [{"action": "click", "target": "Save"}]})
+    assert res_exact["ok"] is False
+    assert res_exact["stopped_at_step"] == 1
+    assert res_exact["session_open"] is True
+    assert browsers[0].act_calls == []
+
+    res_prefix = runner.run_plan_file(
+        {"url": "https://example.test", "steps": [{"action": "click", "target": "Save", "match": "prefix"}]}
+    )
+    assert res_prefix["ok"] is True
+    assert browsers[1].act_calls == [("click", "@e9")]

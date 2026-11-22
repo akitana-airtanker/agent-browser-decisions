@@ -38,6 +38,7 @@ ROLES: dict[str, set[str]] = {
 }
 MAX_CHOICES = 255
 NONE_CHOICE = "__none__"
+VALID_MATCH_MODES: frozenset[str] = frozenset({"exact", "prefix", "regex"})
 DEFAULT_PROVIDER = "openai"
 DEFAULT_DECISION_MODEL = "gpt-6-luna"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -247,36 +248,36 @@ def match_label(
 ) -> tuple[dict[str, Any] | None, str]:
     """Return (element | None, 'hit' | 'ambiguous' | 'missing').
 
-    Default: exact normalised label, then unique prefix. match='regex' matches the raw name instead.
+    Default (or match='exact'): exact normalised label only (no silent prefix fallback).
+    match='prefix' matches normalised prefix; match='regex' matches the raw name (case-insensitive).
     nth=k picks the 1-based k-th hit in document order, for positional plans ('the third result').
     """
     pool = compatible(step, elements)
-    if step.get("match") == "regex":
+    mode = step.get("match") or "exact"
+    if mode not in VALID_MATCH_MODES:
+        return None, "missing"
+    nth = step.get("nth")
+    if nth is not None and (isinstance(nth, bool) or not isinstance(nth, int) or nth < 1):
+        return None, "missing"
+    if mode == "regex":
         pattern = re.compile(step["target"], re.IGNORECASE)
-        predicates = [lambda e: pattern.search(e["name"])]
+        hits = [e for e in pool if pattern.search(e["name"])]
     else:
         label = normalize(step["target"])
         if not label:
             return None, "missing"
-        predicates = [
-            lambda e: normalize(e["name"]) == label,
-            lambda e: normalize(e["name"]).startswith(label),
-        ]
-    nth = step.get("nth")
-    if nth is not None and (isinstance(nth, bool) or not isinstance(nth, int) or nth < 1):
+        if mode == "prefix":
+            hits = [e for e in pool if normalize(e["name"]).startswith(label)]
+        else:
+            hits = [e for e in pool if normalize(e["name"]) == label]
+    if nth is not None:
+        if len(hits) >= nth:
+            return hits[nth - 1], "hit"
         return None, "missing"
-    for predicate in predicates:
-        hits = [e for e in pool if predicate(e)]
-        if nth is not None:
-            if len(hits) >= nth:
-                return hits[nth - 1], "hit"
-            if hits:
-                return None, "missing"
-            continue
-        if len(hits) == 1:
-            return hits[0], "hit"
-        if len(hits) > 1:
-            return None, "ambiguous"
+    if len(hits) == 1:
+        return hits[0], "hit"
+    if len(hits) > 1:
+        return None, "ambiguous"
     return None, "missing"
 
 
@@ -707,9 +708,9 @@ def validate_plan(plan: Any) -> list[str]:
         if "timeout_s" in step and not _is_finite_nonneg_number(step["timeout_s"]):
             problems.append(f"step {index}: timeout_s must be a finite non-negative number")
         if "match" in step:
-            if step["match"] != "regex":
-                problems.append(f"step {index}: match must be 'regex'")
-            elif isinstance(step.get("target"), str):
+            if not isinstance(step["match"], str) or step["match"] not in VALID_MATCH_MODES:
+                problems.append(f"step {index}: match must be one of 'exact', 'prefix', 'regex'")
+            elif step["match"] == "regex" and isinstance(step.get("target"), str):
                 try:
                     re.compile(step["target"])
                 except re.error as err:

@@ -83,13 +83,13 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 | Field | Applies to | Description |
 | --- | --- | --- |
 | `action` | all (required) | `click`, `fill`, `select`, `check`, or `press` |
-| `target` | all except `press` | Accessible label from `agent-browser snapshot -i` (Unicode NFKC exact → prefix match), or regex when `match: "regex"` |
+| `target` | all except `press` | Accessible label from `agent-browser snapshot -i` (Unicode NFKC exact match by default; use `match: "prefix"` or `match: "regex"` to opt in) |
 | `value` | `fill`, `select`, `press` | Literal text to enter, option to select, or key name to press |
 | `value_env` | `fill` (alt. to `value`) | Environment variable name resolved at runtime; missing vars fail fast (`exit 2`) before opening a browser |
 | `secret` | `fill` | Redact the value (`[REDACTED]`) from any error output. Defaults to `true` when `value_env` is used |
 | `role` | all except `press` | Expected ARIA role (must be compatible with `action`); also waits up to 3 s for that role to appear. Omit for unseen elements |
 | `nth` | all except `press` | 1-based positional pick among matching elements. Never falls back to Tier 2 or unrelated elements |
-| `match` | all except `press` | `"regex"` to match `target` as a case-insensitive regex against raw element names |
+| `match` | all except `press` | `"exact"` (default), `"prefix"` (normalised prefix match for dynamic label suffixes), or `"regex"` (case-insensitive regex against raw names) |
 | `describe` | all except `press` | Human-readable hint sent to Tier 2 when disambiguating |
 | `expect` | all | `"navigation"` to require a document URL change |
 | `navigates` | `click` on `link` | Set `false` for SPA links (modals, tabs) that do not change the URL |

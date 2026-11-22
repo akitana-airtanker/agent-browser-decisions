@@ -4,6 +4,7 @@ from agent_browser_decisions.core import (
     NONE_CHOICE,
     PROVIDERS,
     ROLES,
+    VALID_MATCH_MODES,
     DecisionConfig,
     ProviderSpec,
     chosen_ref,
@@ -22,12 +23,13 @@ from agent_browser_decisions.core import (
 )
 from agent_browser_decisions.runner import PlanRunner, run_plan_file
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "NONE_CHOICE",
     "PROVIDERS",
     "ROLES",
+    "VALID_MATCH_MODES",
     "DecisionConfig",
     "PlanRunner",
     "ProviderSpec",

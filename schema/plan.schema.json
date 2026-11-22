@@ -117,7 +117,11 @@
               "minimum": 1
             },
             "match": {
-              "const": "regex"
+              "enum": [
+                "exact",
+                "prefix",
+                "regex"
+              ]
             },
             "decide": {
               "type": "boolean"
@@ -215,7 +219,11 @@
               "minimum": 1
             },
             "match": {
-              "const": "regex"
+              "enum": [
+                "exact",
+                "prefix",
+                "regex"
+              ]
             },
             "decide": {
               "type": "boolean"
@@ -294,7 +302,11 @@
               "minimum": 1
             },
             "match": {
-              "const": "regex"
+              "enum": [
+                "exact",
+                "prefix",
+                "regex"
+              ]
             },
             "decide": {
               "type": "boolean"
@@ -370,7 +382,11 @@
               "minimum": 1
             },
             "match": {
-              "const": "regex"
+              "enum": [
+                "exact",
+                "prefix",
+                "regex"
+              ]
             },
             "decide": {
               "type": "boolean"
@@ -472,7 +488,11 @@
               "minimum": 1
             },
             "match": {
-              "const": "regex"
+              "enum": [
+                "exact",
+                "prefix",
+                "regex"
+              ]
             },
             "decide": {
               "type": "boolean"
