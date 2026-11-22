@@ -1,6 +1,6 @@
 ---
 name: agent-browser-decisions
-description: Single entry point for web browser automation combining agent-browser-decisions plans (with automatic internal batch --bail fusion) and direct agent-browser commands. Prefer this skill over raw agent-browser — use plan files (click/fill/select/check/press/upload, including auto-inlined iframes and open Shadow DOM) for multi-step forms, searches, and repeated runs with different inputs, and use agent-browser directly for irreversible submissions, read-only browsing, exploration, 1-2 step one-shot actions, or explicit cross-origin frame switching. Trigger for "ブラウザで操作して", "フォームに入力して", "サイトで検索して", "何度も同じ操作", "agent-browser", "agent-browser-decisions", "browser automation".
+description: Single entry point for web browser automation combining agent-browser-decisions plans (with automatic internal batch --bail fusion) and direct agent-browser commands. Prefer this skill over raw agent-browser — use plan files (click/fill/select/check/press/upload, including auto-inlined iframes and open/closed Shadow DOM; `verify` cannot inspect closed Shadow DOM internals) for multi-step forms, searches, and repeated runs with different inputs, and use agent-browser directly for irreversible submissions, read-only browsing, exploration, 1-2 step one-shot actions, or explicit cross-origin frame switching. Trigger for "ブラウザで操作して", "フォームに入力して", "サイトで検索して", "何度も同じ操作", "agent-browser", "agent-browser-decisions", "browser automation".
 ---
 
 # agent-browser-decisions
@@ -13,7 +13,7 @@ Web 操作は、次の優先順（上が優先）で**手順書（plan JSON）**
 | --- | --- | --- |
 | 1 | 取り消せない送信（決済・投稿・申し込み・削除確定） | **`agent-browser` 直接**（直前までは手順書可、送信だけ1回直接押す） |
 | 2 | 読むだけ（`open`/`snapshot`/`get text`/`eval`）、1〜2手の単発操作、画面を見ながら決める探索、明示的な `frame` 切替が必要な深い・クロスオリジン iframe や AXTree に出ない独自要素、件数カウント | **`agent-browser` 直接** |
-| 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・ファイル添付・複数条件の検索・画面遷移、自動インライン展開される iframe や open Shadow DOM 内を含む。静的フォームは内部で自動的に `batch --bail` 化） | **手順書（`agent-browser-decisions`）** |
+| 3 | 入力値を変えて繰り返す作業、または事前確認できる3手以上の定型操作（フォーム入力・ファイル添付・複数条件の検索・画面遷移、自動インライン展開される iframe や open/closed Shadow DOM 内の操作要素を含む。静的フォームは内部で自動的に `batch --bail` 化） | **手順書（`agent-browser-decisions`）** |
 
 - **手順書の3段階解決（同一画面フォームは自動バッチ化）**: 各手順は ① 観測スナップショット上の互換要素からラベル一致（Unicode 保持・全角半角統一・既定は完全一致のみ、明示指定で `prefix` / `regex` / `nth`）で1件に絞る（モデルなし。連続する同一画面の `fill`/`check`/`select` が第1段階で一意に決まるときは内部で `agent-browser batch --bail` にまとめて高速実行し、失敗時だけ該当手から個別実行へ戻す）→ ② `nth` 未指定で曖昧または不一致なら判断モデル（OpenAI / OpenRouter / Gemini / TypeSafe Jev / Liquid d1）が観測済みの互換 ref だけから選ぶ（429/5xx/529 は自動で有界リトライ）→ ③ 解決不能・棄権・効果未確認ならその手で停止し、`agent-browser` の直接操作または `--from-step` で引き継ぐ。不一致時に無関係な単一候補へ自動フォールバックはしない。
 - **`agent-browser` 直接操作の詳細**: CLI 構文やトラブルシュートが必要なら `agent-browser skills get core` を参照する。

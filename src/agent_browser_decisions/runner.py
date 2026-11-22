@@ -81,6 +81,22 @@ def poll(predicate: Callable[[], bool], wait_s: float, interval_s: float = 0.05)
         time.sleep(interval_s)
 
 
+class _SnapshotTracker:
+    """Tracks the latest observed raw snapshot and whether browser actions ran after it."""
+
+    def __init__(self) -> None:
+        self.raw: str | None = None
+        self.stale: bool = False
+
+    def record(self, page: dict[str, Any] | None) -> None:
+        if page is not None and isinstance(page.get("raw"), str):
+            self.raw = page["raw"]
+            self.stale = False
+
+    def mark_stale(self) -> None:
+        self.stale = True
+
+
 class PlanRunner:
     """Stateless-per-run orchestrator: resolve -> act -> check effect -> verify."""
 
@@ -129,13 +145,13 @@ class PlanRunner:
         allow_decisions: bool = False,
         settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
-        last_raw_out: list[str] | None = None,
+        snapshot_tracker: _SnapshotTracker | None = None,
         secrets: set[str] | frozenset[str] = frozenset(),
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
         if mode == "decide" and not allow_decisions:
             page = initial_page if initial_page is not None else browser.observe()
-            if last_raw_out is not None and isinstance(page.get("raw"), str):
-                last_raw_out[:] = [page["raw"]]
+            if snapshot_tracker is not None:
+                snapshot_tracker.record(page)
             return None, 3, {"reason": "Tier 2 decisions disabled (pass --decisions to enable)"}, page
 
         effective_settle = self.settle_s if settle_s is None else settle_s
@@ -144,8 +160,8 @@ class PlanRunner:
         last_status: str | None = None
         while True:
             page = browser.observe()
-            if last_raw_out is not None and isinstance(page.get("raw"), str):
-                last_raw_out[:] = [page["raw"]]
+            if snapshot_tracker is not None:
+                snapshot_tracker.record(page)
             # Two consecutive identical snapshots mean the page has settled and refs are not shifting.
             stable = previous is not None and page["raw"] == previous
             previous = page["raw"]
@@ -206,9 +222,12 @@ class PlanRunner:
         browser: AgentBrowser,
         page: dict[str, Any],
         observed_out: list[dict[str, Any]] | None = None,
+        snapshot_tracker: _SnapshotTracker | None = None,
     ) -> Callable[[], bool]:
         def check() -> bool:
             now = browser.observe(category="check")
+            if snapshot_tracker is not None:
+                snapshot_tracker.record(now)
             if now["raw"] != page["raw"] or now["url"] != page["url"]:
                 if observed_out is not None:
                     observed_out.append(now)
@@ -225,6 +244,7 @@ class PlanRunner:
         page: dict[str, Any],
         *,
         allow_keyboard: bool = True,
+        snapshot_tracker: _SnapshotTracker | None = None,
     ) -> tuple[str, dict[str, Any] | None]:
         action, ref = step["action"], f"@{element['ref']}"
         if action == "fill":
@@ -263,7 +283,11 @@ class PlanRunner:
                     return "ok_keyboard", None
             return "wrong_target", None
         observed: list[dict[str, Any]] = []
-        changed = poll(self._changed_since(browser, page, observed), self.effect_wait_s, self.poll_s)
+        changed = poll(
+            self._changed_since(browser, page, observed, snapshot_tracker=snapshot_tracker),
+            self.effect_wait_s,
+            self.poll_s,
+        )
         return ("ok" if changed else "no_effect"), (observed[-1] if observed else None)
 
     def _wait_stable_page(
@@ -294,7 +318,8 @@ class PlanRunner:
         verify_expr: str | None = None,
         settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
-        last_raw_out: list[str] | None = None,
+        snapshot_tracker: _SnapshotTracker | None = None,
+        secrets: set[str] | frozenset[str] = frozenset(),
     ) -> tuple[int, tuple[bool, Any] | None, str | None]:
         if len(remaining_steps) < 2 or not hasattr(browser, "batch"):
             return 0, None, None
@@ -308,8 +333,8 @@ class PlanRunner:
         started = time.perf_counter()
         metrics.reset()
         page = self._wait_stable_page(browser, settle_s=settle_s, initial_page=initial_page)
-        if last_raw_out is not None and isinstance(page.get("raw"), str):
-            last_raw_out[:] = [page["raw"]]
+        if snapshot_tracker is not None:
+            snapshot_tracker.record(page)
         selected = select_tier1_batch(remaining_steps, page["elements"])
         if len(selected) < 2:
             return 0, None, None
@@ -323,6 +348,8 @@ class PlanRunner:
                 verify_expr=verify_expr,
                 include_url=True,
             )
+        if snapshot_tracker is not None:
+            snapshot_tracker.mark_stale()
         try:
             rows = browser.batch(commands, bail=True, category="act")
         except (RuntimeError, subprocess.TimeoutExpired, OSError):
@@ -353,7 +380,7 @@ class PlanRunner:
                     "target": step["target"],
                     "url": page["url"],
                     "ok": True,
-                    "chose": el["name"][:80],
+                    "chose": redact_text(el["name"], secrets)[:80],
                     "effect": "ok",
                     "batched": True,
                     "ms": per_step_ms,
@@ -377,7 +404,7 @@ class PlanRunner:
         allow_decisions: bool = False,
         settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
-        last_raw_out: list[str] | None = None,
+        snapshot_tracker: _SnapshotTracker | None = None,
     ) -> tuple[bool, dict[str, Any] | None]:
         started = time.perf_counter()
         metrics.reset()
@@ -389,13 +416,29 @@ class PlanRunner:
 
         if step["action"] == "press":
             page = initial_page if initial_page is not None else browser.observe()
-            if last_raw_out is not None and isinstance(page.get("raw"), str):
-                last_raw_out[:] = [page["raw"]]
+            if snapshot_tracker is not None:
+                snapshot_tracker.record(page)
+                snapshot_tracker.mark_stale()
             browser.call("press", step["value"], category="act")
-            observed: list[dict[str, Any]] = []
-            changed = poll(self._changed_since(browser, page, observed), self.effect_wait_s, self.poll_s)
-            outcome = "ok" if changed else "no_effect"
-            step_ok = outcome != "no_effect"
+            if step.get("expect") == "navigation":
+
+                def moved() -> bool:
+                    return document(browser.current_url()) != document(page["url"])
+
+                changed = poll(moved, 1.5, 0.1)
+                outcome = "ok" if changed else "wrong_target"
+                step_ok = outcome == "ok"
+                next_press_page: dict[str, Any] | None = None
+            else:
+                observed: list[dict[str, Any]] = []
+                changed = poll(
+                    self._changed_since(browser, page, observed, snapshot_tracker=snapshot_tracker),
+                    self.effect_wait_s,
+                    self.poll_s,
+                )
+                outcome = "ok" if changed else "no_effect"
+                step_ok = outcome != "no_effect"
+                next_press_page = observed[-1] if observed else None
             log.append(
                 {
                     "step": index,
@@ -408,7 +451,7 @@ class PlanRunner:
                     "metrics": metrics.summary(),
                 }
             )
-            return step_ok, (observed[-1] if observed else None)
+            return step_ok, next_press_page
 
         last_attempt: dict[str, Any] = {}
         next_page: dict[str, Any] | None = None
@@ -425,7 +468,7 @@ class PlanRunner:
                 allow_decisions=allow_decisions,
                 settle_s=settle_s,
                 initial_page=seed_page,
-                last_raw_out=last_raw_out,
+                snapshot_tracker=snapshot_tracker,
                 secrets=secrets,
             )
             seed_page = None
@@ -451,6 +494,8 @@ class PlanRunner:
                     }
                 )
                 return False, None
+            if snapshot_tracker is not None:
+                snapshot_tracker.mark_stale()
             try:
                 browser.call(*command_for(step, element["ref"]), category="act")
             except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
@@ -467,7 +512,9 @@ class PlanRunner:
                 return False, None
 
             allow_kb = allow_retry and repeats == 0
-            outcome, next_page = self._effect(browser, step, element, page, allow_keyboard=allow_kb)
+            outcome, next_page = self._effect(
+                browser, step, element, page, allow_keyboard=allow_kb, snapshot_tracker=snapshot_tracker
+            )
             last_attempt = {"chose": redact_text(element["name"], secrets)[:80], "effect": outcome}
             if once:
                 break
@@ -627,7 +674,8 @@ class PlanRunner:
                     pass
 
         log: list[dict[str, Any]] = []
-        last_observed_raw: list[str] = []
+        snapshot_tracker = _SnapshotTracker()
+        expect_url_failed = False
         completed = False
         error: str | None = None
         verified: bool | None = None
@@ -660,7 +708,6 @@ class PlanRunner:
                         }
 
                 verify_expr = wrap_verify_with_vars(plan["verify"], merged_vars) if plan.get("verify") else None
-                expect_url_failed = False
                 if expect_url:
                     try:
                         current = browser.current_url()
@@ -697,7 +744,8 @@ class PlanRunner:
                                 default=self.settle_s,
                             ),
                             initial_page=carried_page,
-                            last_raw_out=last_observed_raw,
+                            snapshot_tracker=snapshot_tracker,
+                            secrets=secrets,
                         )
                         if batched > 0:
                             carried_page = None
@@ -727,7 +775,7 @@ class PlanRunner:
                                 default=self.settle_s,
                             ),
                             initial_page=carried_page,
-                            last_raw_out=last_observed_raw,
+                            snapshot_tracker=snapshot_tracker,
                         )
                         if not step_ok:
                             completed = False
@@ -764,6 +812,8 @@ class PlanRunner:
                         verified, verify_value = self._verify_page(
                             browser, verify_expr, plan.get("verify_timeout_s", 10), secrets
                         )
+                    if verified is False:
+                        snapshot_tracker.mark_stale()
         except KeyboardInterrupt:
             interrupted = True
             completed = False
@@ -793,6 +843,9 @@ class PlanRunner:
                     browser.close()
                 closed = True
             session_open = session_opened and not closed
+            if not ok and session_open and not interrupted and not expect_url_failed and snapshot_tracker.stale:
+                with contextlib.suppress(RuntimeError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+                    snapshot_tracker.record(browser.observe(category="observe"))
             if profile and not session_open:
                 shutil.rmtree(profile, ignore_errors=True)
                 profile = None
@@ -831,8 +884,8 @@ class PlanRunner:
                 for e in log
             ],
         }
-        if not ok and session_open and last_observed_raw:
-            stopped_snap = format_stopped_snapshot(last_observed_raw[-1], secrets)
+        if not ok and session_open and snapshot_tracker.raw:
+            stopped_snap = format_stopped_snapshot(snapshot_tracker.raw, secrets)
             if stopped_snap:
                 result["stopped_snapshot"] = stopped_snap
         return result

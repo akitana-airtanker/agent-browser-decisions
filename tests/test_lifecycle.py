@@ -1440,3 +1440,279 @@ def test_resume_redacts_prior_step_secrets_across_outputs_and_tier2() -> None:
     dumped_req = json.dumps(recorded_clients[0].payloads[0])
     assert secret_lit not in dumped_req
     assert "[REDACTED]" in dumped_req
+
+
+def test_stopped_snapshot_reobserves_post_click_on_verify_failure() -> None:
+    """Clicking Save then failing verify must return the post-click DOM, not the pre-click DOM."""
+
+    class StatefulClickBrowser(FakeBrowser):
+        def __init__(self, session: str | None = None, **kwargs: Any) -> None:
+            super().__init__(session, verify_out="false", **kwargs)
+            self.saved = False
+            self.observe_calls = 0
+
+        def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
+            if args[:2] == ("click", "@e1"):
+                self.saved = True
+                return ""
+            return super().call(*args, check=check, category=category)
+
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            self.observe_calls += 1
+            raw = '- heading "Saved!" [ref=e9]' if self.saved else '- button "Save" [ref=e1]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+    created: list[StatefulClickBrowser] = []
+
+    def factory(session: str | None = None, **kwargs: Any) -> StatefulClickBrowser:
+        b = StatefulClickBrowser(session, **kwargs)
+        created.append(b)
+        return b
+
+    plan = {
+        "url": "https://example.test/order",
+        "steps": [{"action": "click", "target": "Save", "once": True}],
+        "verify": "false",
+        "verify_timeout_s": 0.01,
+    }
+    runner = PlanRunner(
+        browser_factory=factory,
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        verify_poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res = runner.run_plan_file(plan, session="s-save")
+    assert res["ok"] is False
+    assert res["verified"] is False
+    assert res["stopped_at_step"] is None
+    assert 'heading "Saved!"' in (res.get("stopped_snapshot") or "")
+    assert 'button "Save"' not in (res.get("stopped_snapshot") or "")
+
+
+def test_stopped_snapshot_reobserves_post_batch_on_verify_failure() -> None:
+    """When a tail-covering Tier 1 batch runs and verify fails, stopped_snapshot reflects post-batch state."""
+
+    class StatefulBatchBrowser(FakeBrowser):
+        def __init__(self, session: str | None = None, **kwargs: Any) -> None:
+            super().__init__(session, verify_out="false", **kwargs)
+            self.filled = False
+
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            if self.filled:
+                raw = '- textbox "First" [ref=e1]: Alice\n- textbox "Last" [ref=e2]: Smith'
+            else:
+                raw = '- textbox "First" [ref=e1]\n- textbox "Last" [ref=e2]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+        def batch(
+            self, commands: list[list[str]], *, bail: bool = True, category: str = "act"
+        ) -> list[dict[str, Any]]:
+            self.filled = True
+            rows: list[dict[str, Any]] = []
+            for cmd in commands:
+                if cmd[:2] == ["get", "value"] and cmd[2] == "@e1":
+                    rows.append({"success": True, "result": {"value": "Alice"}})
+                elif cmd[:2] == ["get", "value"] and cmd[2] == "@e2":
+                    rows.append({"success": True, "result": {"value": "Smith"}})
+                elif cmd[:1] == ["eval"]:
+                    rows.append({"success": True, "result": "false"})
+                elif cmd[:2] == ["get", "url"]:
+                    rows.append({"success": True, "result": {"url": self.url}})
+                else:
+                    rows.append({"success": True, "result": ""})
+            return rows
+
+    plan = {
+        "url": "https://example.test/form",
+        "steps": [
+            {"action": "fill", "target": "First", "value": "Alice"},
+            {"action": "fill", "target": "Last", "value": "Smith"},
+        ],
+        "verify": "false",
+        "verify_timeout_s": 0.01,
+    }
+    runner = PlanRunner(
+        browser_factory=StatefulBatchBrowser,
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        verify_poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res = runner.run_plan_file(plan, session="s-batch")
+    assert res["ok"] is False
+    assert res["verified"] is False
+    assert res["steps"][0].get("batched") is True
+    snap = res.get("stopped_snapshot") or ""
+    assert "Alice" in snap and "Smith" in snap
+
+
+def test_stopped_snapshot_reobserves_on_effect_failure_and_falls_back_on_error() -> None:
+    """Link wrong_target re-observes post-action DOM; if re-observe fails, falls back to last observed."""
+
+    class PostActionLinkBrowser(FakeBrowser):
+        def __init__(self, session: str | None = None, *, fail_reobserve: bool = False, **kwargs: Any) -> None:
+            super().__init__(session, **kwargs)
+            self.clicked = False
+            self.fail_reobserve = fail_reobserve
+
+        def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
+            if args[:2] == ("click", "@e1"):
+                self.clicked = True
+                return ""
+            if args[:2] == ("get", "attr"):
+                return "/next"
+            return super().call(*args, check=check, category=category)
+
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            if self.clicked and self.fail_reobserve:
+                raise RuntimeError("browser disconnected")
+            raw = '- dialog "Confirm?" [ref=e2]' if self.clicked else '- link "Go" [ref=e1]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+    plan = {"url": "https://example.test/a", "steps": [{"action": "click", "target": "Go"}]}
+
+    runner_ok = PlanRunner(
+        browser_factory=lambda s=None, **kw: PostActionLinkBrowser(s, fail_reobserve=False, **kw),
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_fresh = runner_ok.run_plan_file(plan, session="s-link")
+    assert res_fresh["ok"] is False
+    assert 'dialog "Confirm?"' in (res_fresh.get("stopped_snapshot") or "")
+
+    runner_fb = PlanRunner(
+        browser_factory=lambda s=None, **kw: PostActionLinkBrowser(s, fail_reobserve=True, **kw),
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_fb = runner_fb.run_plan_file(plan, session="s-link-fb")
+    assert res_fb["ok"] is False
+    assert 'link "Go"' in (res_fb.get("stopped_snapshot") or "")
+
+
+def test_expect_url_mismatch_does_not_observe_wrong_page() -> None:
+    """When --expect-url fails, the runner must not observe or return the mismatched page's DOM."""
+    observed_count = 0
+
+    class GuardedBrowser(FakeBrowser):
+        def __init__(self, session: str | None = None, **kwargs: Any) -> None:
+            super().__init__(session, **kwargs)
+            self.url = "https://other.example.test/private"
+
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            nonlocal observed_count
+            observed_count += 1
+            return super().observe(category=category)
+
+    plan = {"url": "https://example.test/orders", "steps": [{"action": "click", "target": "Save"}]}
+    runner = PlanRunner(
+        browser_factory=GuardedBrowser,
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res = runner.run_plan_file(plan, session="s-guard", no_open=True, expect_url="https://example.test/orders")
+    assert res["ok"] is False
+    assert observed_count == 0
+    assert "stopped_snapshot" not in res
+
+
+def test_press_honors_expect_navigation() -> None:
+    """press with expect='navigation' checks URL change rather than snapshot change."""
+
+    class PressNavBrowser(FakeBrowser):
+        def __init__(self, session: str | None = None, *, navigate: bool = False, **kwargs: Any) -> None:
+            super().__init__(session, **kwargs)
+            self.navigate = navigate
+            self.pressed = False
+
+        def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
+            if args[:2] == ("press", "Enter"):
+                self.pressed = True
+                if self.navigate:
+                    self.url = "https://example.test/done"
+                return ""
+            return super().call(*args, check=check, category=category)
+
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raw = '- heading "Changed DOM only" [ref=e2]' if self.pressed else '- textbox "Search" [ref=e1]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+    plan = {
+        "url": "https://example.test/search",
+        "steps": [{"action": "press", "value": "Enter", "expect": "navigation"}],
+    }
+
+    r_fail = PlanRunner(
+        browser_factory=lambda s=None, **kw: PressNavBrowser(s, navigate=False, **kw),
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_fail = r_fail.run_plan_file(plan, session="s-press-fail")
+    assert res_fail["ok"] is False
+    assert res_fail["steps"][0]["effect"] == "wrong_target"
+    assert 'heading "Changed DOM only"' in (res_fail.get("stopped_snapshot") or "")
+
+    r_ok = PlanRunner(
+        browser_factory=lambda s=None, **kw: PressNavBrowser(s, navigate=True, **kw),
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_ok = r_ok.run_plan_file(plan, session="s-press-ok")
+    assert res_ok["ok"] is True
+    assert res_ok["steps"][0]["effect"] == "ok"
+
+
+def test_batch_redacts_secret_in_chose() -> None:
+    """Tier 1 batch log redacts secrets appearing in element names just like single-step execution."""
+    secret = "s3cr3t-batch-name"
+
+    class SecretBatchBrowser(FakeBrowser):
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raw = f'- textbox "Key {secret}" [ref=e1]\n- textbox "User" [ref=e2]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+        def batch(
+            self, commands: list[list[str]], *, bail: bool = True, category: str = "act"
+        ) -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for cmd in commands:
+                if cmd[:2] == ["get", "value"] and cmd[2] == "@e1":
+                    rows.append({"success": True, "result": {"value": secret}})
+                elif cmd[:2] == ["get", "value"] and cmd[2] == "@e2":
+                    rows.append({"success": True, "result": {"value": "alice"}})
+                elif cmd[:2] == ["get", "url"]:
+                    rows.append({"success": True, "result": {"url": self.url}})
+                else:
+                    rows.append({"success": True, "result": ""})
+            return rows
+
+    plan = {
+        "url": "https://example.test/form",
+        "steps": [
+            {"action": "fill", "target": f"Key {secret}", "value": secret, "secret": True},
+            {"action": "fill", "target": "User", "value": "alice"},
+        ],
+    }
+    runner = PlanRunner(
+        browser_factory=SecretBatchBrowser,
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res = runner.run_plan_file(plan, session="s-red")
+    assert res["ok"] is True
+    assert res["steps"][0]["batched"] is True
+    assert secret not in json.dumps(res["steps"][0]["chose"])
+    assert "[REDACTED]" in res["steps"][0]["chose"]
