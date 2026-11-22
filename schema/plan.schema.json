@@ -138,34 +138,65 @@
             "timeout_s": {
               "type": "number",
               "minimum": 0
+            },
+            "retry": {
+              "type": "boolean"
             }
           },
-          "if": {
-            "properties": {
-              "decide": {
-                "const": true
-              }
-            },
-            "required": [
-              "decide"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "nth"
-                  ]
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "decide": {
+                    "const": true
+                  }
                 },
-                {
-                  "required": [
-                    "match"
+                "required": [
+                  "decide"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "nth"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "match"
+                      ]
+                    }
                   ]
                 }
-              ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "retry": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "retry"
+                ]
+              },
+              "then": {
+                "not": {
+                  "properties": {
+                    "once": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "once"
+                  ]
+                }
+              }
             }
-          }
+          ]
         },
         {
           "title": "fill",
@@ -240,34 +271,65 @@
             "timeout_s": {
               "type": "number",
               "minimum": 0
+            },
+            "retry": {
+              "type": "boolean"
             }
           },
-          "if": {
-            "properties": {
-              "decide": {
-                "const": true
-              }
-            },
-            "required": [
-              "decide"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "nth"
-                  ]
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "decide": {
+                    "const": true
+                  }
                 },
-                {
-                  "required": [
-                    "match"
+                "required": [
+                  "decide"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "nth"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "match"
+                      ]
+                    }
                   ]
                 }
-              ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "retry": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "retry"
+                ]
+              },
+              "then": {
+                "not": {
+                  "properties": {
+                    "once": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "once"
+                  ]
+                }
+              }
             }
-          }
+          ]
         },
         {
           "title": "select",
@@ -323,34 +385,65 @@
             "timeout_s": {
               "type": "number",
               "minimum": 0
+            },
+            "retry": {
+              "type": "boolean"
             }
           },
-          "if": {
-            "properties": {
-              "decide": {
-                "const": true
-              }
-            },
-            "required": [
-              "decide"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "nth"
-                  ]
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "decide": {
+                    "const": true
+                  }
                 },
-                {
-                  "required": [
-                    "match"
+                "required": [
+                  "decide"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "nth"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "match"
+                      ]
+                    }
                   ]
                 }
-              ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "retry": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "retry"
+                ]
+              },
+              "then": {
+                "not": {
+                  "properties": {
+                    "once": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "once"
+                  ]
+                }
+              }
             }
-          }
+          ]
         },
         {
           "title": "check",
@@ -403,34 +496,65 @@
             "timeout_s": {
               "type": "number",
               "minimum": 0
+            },
+            "retry": {
+              "type": "boolean"
             }
           },
-          "if": {
-            "properties": {
-              "decide": {
-                "const": true
-              }
-            },
-            "required": [
-              "decide"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "nth"
-                  ]
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "decide": {
+                    "const": true
+                  }
                 },
-                {
-                  "required": [
-                    "match"
+                "required": [
+                  "decide"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "nth"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "match"
+                      ]
+                    }
                   ]
                 }
-              ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "retry": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "retry"
+                ]
+              },
+              "then": {
+                "not": {
+                  "properties": {
+                    "once": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "once"
+                  ]
+                }
+              }
             }
-          }
+          ]
         },
         {
           "title": "press",
@@ -503,34 +627,65 @@
             "timeout_s": {
               "type": "number",
               "minimum": 0
+            },
+            "retry": {
+              "type": "boolean"
             }
           },
-          "if": {
-            "properties": {
-              "decide": {
-                "const": true
-              }
-            },
-            "required": [
-              "decide"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "nth"
-                  ]
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "decide": {
+                    "const": true
+                  }
                 },
-                {
-                  "required": [
-                    "match"
+                "required": [
+                  "decide"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "nth"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "match"
+                      ]
+                    }
                   ]
                 }
-              ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "retry": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "retry"
+                ]
+              },
+              "then": {
+                "not": {
+                  "properties": {
+                    "once": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "once"
+                  ]
+                }
+              }
             }
-          }
+          ]
         }
       ]
     }

@@ -13,6 +13,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 ROLES: dict[str, set[str]] = {
     "click": {
@@ -169,6 +170,7 @@ STEP_KEYS = {
     "expect",
     "navigates",
     "once",
+    "retry",
     "decide",
     "timeout_s",
 }
@@ -575,6 +577,55 @@ def hash_route(href: str) -> bool:
     return href.startswith("#") and len(href) > 1
 
 
+def should_retry_step(step: Mapping[str, Any]) -> bool:
+    """Decide whether a step may retry on the same element (pure).
+
+    Idempotent form inputs (fill/check/select) retry once by default unless once=true or retry=false.
+    Click/upload/press execute at most once on the same element by default; set retry=true to opt in.
+    """
+    if step.get("once") is True:
+        return False
+    if "retry" in step:
+        return bool(step["retry"])
+    return step.get("action") in BATCHABLE_ACTIONS
+
+
+def validate_expect_url(expect_url: str) -> str | None:
+    """Validate an --expect-url precondition (must be a well-formed http(s) URL with a host)."""
+    if not isinstance(expect_url, str) or not expect_url.strip():
+        return "expect_url must be a non-empty http(s) URL"
+    if any(ch.isspace() for ch in expect_url):
+        return f"expect_url must not contain whitespace: {expect_url!r}"
+    parsed = urlsplit(expect_url)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        return f"expect_url must be an absolute http(s) URL with a host: {expect_url!r}"
+    return None
+
+
+def url_matches_expected(actual_url: str, expected_url: str) -> bool:
+    """Origin-safe, path-segment-boundary check between a live browser URL and an expected URL prefix."""
+    if not actual_url or validate_expect_url(expected_url) is not None:
+        return False
+    actual = urlsplit(actual_url.strip())
+    expected = urlsplit(expected_url.strip())
+    if actual.scheme.lower() != expected.scheme.lower():
+        return False
+    if actual.netloc.lower() != expected.netloc.lower():
+        return False
+    exp_path = expected.path
+    act_path = actual.path or "/"
+    if exp_path and exp_path != "/":
+        if exp_path.endswith("/"):
+            if not act_path.startswith(exp_path):
+                return False
+        else:
+            if act_path != exp_path and not act_path.startswith(exp_path + "/"):
+                return False
+    if expected.query and actual.query != expected.query:
+        return False
+    return not (expected.fragment and actual.fragment != expected.fragment)
+
+
 def redact_text(text: str, secrets: set[str] | frozenset[str]) -> str:
     """Scrub any resolved secret values from strings before logging or returning JSON."""
     if not text or not secrets:
@@ -719,9 +770,11 @@ def validate_plan(plan: Any) -> list[str]:
             problems.append(f"step {index}: nth must be a positive integer")
         if "expect" in step and step["expect"] != "navigation":
             problems.append(f"step {index}: expect must be 'navigation'")
-        for flag in ("decide", "once", "navigates"):
+        for flag in ("decide", "once", "retry", "navigates"):
             if flag in step and not isinstance(step[flag], bool):
                 problems.append(f"step {index}: {flag} must be a boolean")
+        if step.get("retry") is True and step.get("once") is True:
+            problems.append(f"step {index}: retry=true cannot be combined with once=true")
         if step.get("decide") is True and ("nth" in step or "match" in step):
             problems.append(f"step {index}: decide=true cannot be combined with nth or match")
     return problems
@@ -737,6 +790,7 @@ def validate_run_options(
     reload_page: bool = False,
     keep_open: bool = False,
     close_on_success: bool = False,
+    expect_url: str | None = None,
 ) -> list[str]:
     """Runtime option checks over an already schema-valid plan (pure)."""
     problems: list[str] = []
@@ -772,6 +826,10 @@ def validate_run_options(
         problems.append(
             "cannot combine reset=true with --session (pass --no-open or --reload to reuse an open session)"
         )
+    if expect_url is not None:
+        url_problem = validate_expect_url(expect_url)
+        if url_problem:
+            problems.append(url_problem)
     return problems
 
 

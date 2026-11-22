@@ -1218,3 +1218,117 @@ def test_default_exact_match_stops_instead_of_clicking_prefix_button() -> None:
     )
     assert res_prefix["ok"] is True
     assert browsers[1].act_calls == [("click", "@e9")]
+
+
+def test_default_click_and_link_never_retry_or_send_enter_without_opt_in() -> None:
+    """Default click (button or link) fires at most 1 activation on the same element."""
+
+    class StaticLinkBrowser(FakeBrowser):
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raw = '- link "Delete item" [ref=e1]\n- button "Approve" [ref=e2]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+    def make_runner(store: list[StaticLinkBrowser]) -> PlanRunner:
+        def factory(session: str | None = None, **kw: Any) -> StaticLinkBrowser:
+            b = StaticLinkBrowser(session, effect_ok=False, **kw)
+            store.append(b)
+            return b
+
+        return PlanRunner(
+            browser_factory=factory,
+            decisions_factory=FailingDecisionsClient,
+            settle_s=0.0,
+            poll_s=0.005,
+            effect_wait_s=0.02,
+        )
+
+    # 1) Default link click with no navigation must NOT send Enter or second click
+    link_browsers: list[StaticLinkBrowser] = []
+    res_link = make_runner(link_browsers).run_plan_file(
+        {"url": "https://example.test/items", "steps": [{"action": "click", "target": "Delete item"}]}
+    )
+    assert res_link["ok"] is False
+    assert link_browsers[0].act_calls == [("click", "@e1")]
+
+    # 2) Default button click with no effect must NOT retry a second click
+    btn_browsers: list[StaticLinkBrowser] = []
+    res_btn = make_runner(btn_browsers).run_plan_file(
+        {"url": "https://example.test/items", "steps": [{"action": "click", "target": "Approve"}]}
+    )
+    assert res_btn["ok"] is False
+    assert btn_browsers[0].act_calls == [("click", "@e2")]
+
+    # 3) Opt-in retry=True on link tries click + focus/Enter once (at most 2 activations, never 4)
+    retry_browsers: list[StaticLinkBrowser] = []
+    res_retry = make_runner(retry_browsers).run_plan_file(
+        {"url": "https://example.test/items", "steps": [{"action": "click", "target": "Delete item", "retry": True}]}
+    )
+    assert res_retry["ok"] is False
+    assert retry_browsers[0].act_calls == [("click", "@e1"), ("press", "Enter")]
+
+
+def test_expect_url_blocks_resume_on_wrong_page_without_executing_steps() -> None:
+    """--expect-url aborts before step execution when live session drifted to another page."""
+    browsers: list[FakeBrowser] = []
+
+    def make_browser(session: str | None = None, **kwargs: Any) -> FakeBrowser:
+        fb = FakeBrowser(session, open_ok=True, effect_ok=True, **kwargs)
+        fb.url = "https://example.test/orders-delete"
+        browsers.append(fb)
+        return fb
+
+    runner = PlanRunner(
+        browser_factory=make_browser,
+        decisions_factory=FailingDecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    plan = {
+        "url": "https://example.test/orders",
+        "steps": [
+            {"action": "click", "target": "Go"},
+            {"action": "click", "target": "Go"},
+        ],
+    }
+    res_bad = runner.run_plan_file(
+        plan,
+        session="live-sess",
+        from_step=2,
+        expect_url="https://example.test/orders",
+    )
+    assert res_bad["ok"] is False
+    assert res_bad["session_open"] is True
+    assert res_bad["stopped_at_step"] == 2
+    assert res_bad["steps"] == []
+    assert "expect_url mismatch" in (res_bad.get("error") or "")
+    assert browsers[0].act_calls == []
+    assert "live-sess" not in browsers[0].closed_sessions
+
+    res_ok = runner.run_plan_file(
+        plan,
+        session="live-sess",
+        from_step=2,
+        expect_url="https://example.test/orders-delete",
+    )
+    assert res_ok["ok"] is True
+    assert browsers[1].act_calls == [("click", "@e1")]
+
+
+def test_cli_expect_url_flag_forwarding(tmp_path: Any, monkeypatch: Any, capsys: Any) -> None:
+    from agent_browser_decisions import cli
+
+    plan_path = tmp_path / "p.json"
+    plan_path.write_text(json.dumps({"steps": [{"action": "click", "target": "Go"}]}), encoding="utf-8")
+    recorded: list[str | None] = []
+
+    def fake_run_plan_file(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        recorded.append(kwargs.get("expect_url"))
+        return {"ok": True, "session": "s", "session_open": False, "verified": None, "steps": []}
+
+    monkeypatch.setattr(cli, "run_plan_file", fake_run_plan_file)
+    monkeypatch.setattr(cli, "load_dotenv_files", lambda _=None: None)
+
+    assert cli.main(["run", str(plan_path), "--session", "s", "--expect-url", "https://example.test/orders"]) == 0
+    capsys.readouterr()
+    assert recorded == ["https://example.test/orders"]

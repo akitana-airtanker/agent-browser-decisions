@@ -80,7 +80,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   - 自動探索の対象は **個人用ディレクトリ（`~/.local/share/agent-browser-decisions/plans/`）または利用者が明示したパス** に限る。
   - リポジトリ内 `plans/`（`.agent-browser/plans/`）は信頼できる自前・チーム管理リポジトリに限り、**`verify`（ページ内で任意 JS を評価）と `steps` を確認したうえで実行**する。外部から clone しただけの未信頼リポジトリの `plans/` は自動探索・自動実行しない（ログイン済み永続プロファイル併用時は厳禁）。
   - 対象 URL・`goal` に該当する候補が複数あるときは勝手に1つを選ばず、一覧を示して利用者に確認する。
-- **復旧後の更新確認**: 既存手順書が UI ラベル変化等で止まったら、`stopped_snapshot` から最小修正を入れて `--session <session> --from-step <stopped_at_step> --close` で再開する。完走（`ok: true`・`verified: true`）後、**リポジトリ共有の `plans/` への書き戻しは必ず差分を提示して利用者確認を得てから上書き**する（個人用保存先でも変更点を報告して更新する）。
+- **復旧後の更新確認**: 既存手順書が UI ラベル変化等で止まったら、`stopped_snapshot` から最小修正を入れ、停止時の `url` を `--expect-url` に添えて `--session <session> --from-step <stopped_at_step> --expect-url "<url>" --close` で再開する。完走（`ok: true`・`verified: true`）後、**リポジトリ共有の `plans/` への書き戻しは必ず差分を提示して利用者確認を得てから上書き**する（個人用保存先でも変更点を報告して更新する）。
 - **保存時の衛生ルール**: パスワード・トークン・機密の個人情報は保存手順書に平文で書かず `value_env` にする。可変値は `vars` / `{{KEY}}` / `VARS.*` に切り出して再利用できる形で残す。
 
 ## Plan schema
@@ -101,7 +101,8 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   - `describe`（判断モデルへ渡す説明文）
   - `expect`（`"navigation"` のみ）
   - `navigates`（boolean。URL 遷移しない `link` で `false` を指定）
-  - `once`（boolean。`true` で再試行と Enter フォールバックを無効化し最大1回実行）
+  - `once`（boolean。`true` で全段階の再試行を無効化し最大1回実行。`retry: true` と併用不可）
+  - `retry`（boolean。`click`/`upload` は既定 `false` で同一要素への再試行・リンク `Enter` 補完を行わない。折り返しリンク等で再試行を許可したいときだけ `true` を明示する。`fill`/`check`/`select` は既定 `true`）
   - `decide`（boolean。`true` で第1段階を飛ばし第2段階へ直接送る。`nth` / `match` と併用不可。実行時に `--decisions` 等で第2段階を有効化する必要あり）
   - `timeout_s`（0 以上の数値。`press` 以外で要素出現・安定待ちの上限秒をステップ単位で上書き。計画全体の `settle_s` や CLI `--settle-s` で一括指定も可能。`0` や `0.5` で早めに諦めて第3段階へ返せる）
 
@@ -113,7 +114,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 - **動的に開く部品は手前で止めて段階作成する**: カレンダーやモーダルなど開始画面に見えない部品がある場合は、推測で全手順を一発書きせず、開くクリックまでを書いて `--keep-open` で実行し、開いた画面の `snapshot -i` を確認してから後半を手順書へ追記して `--session <id> --from-step N --close` で仕上げる。静的画面や初回検証でラベル不一致を早く検知したいときは `--settle-s 0.5`（または `0`）で早めに諦めて引き継ぐ。`role` はスナップショットで確認済みの要素にだけ書く。
 - **順番と同一ラベル**: 「3番目の結果」のような順番指定は判断モデルに数えさせず `nth` を使う（例: `{"action": "click", "target": "^\\d+\\s*comments?$", "match": "regex", "nth": 3}`）。各商品の「Add to cart」のように項目名を含まない同一ラベルが並ぶとき、順番が固定なら `nth`、並び順が変わりうるなら `agent-browser` の直接操作に切り替える。既存手順書の再実行前も `nth` の位置と対象が一致しているか確かめる。
 - **遷移・副作用・`select`**:
-  - URL が変わらない `link`（SPA のタブ切替やモーダルを開くリンク）は `"navigates": false` を付ける（付けないと URL 変化を待って Enter を押し、`wrong_target` で止まる）。
+  - URL が変わらない `link`（SPA のタブ切替やモーダルを開くリンク）は `"navigates": false` を付ける（付けないと URL 変化が起きず `wrong_target` で止まる。既定では `Enter` 補完や再クリックは行わない）。
   - `"expect": "navigation"` は必ずページ移動が起きる手順にだけ付ける。ログイン失敗など移動しない分岐があるときは付けず、`verify` で判定する。
   - 支払い・投稿・申し込み・削除確定など取り消せない送信は手順書に入れず、直前で止めて直接操作で1回だけ押す。それ以外でも応答が遅く二重実行を避けたい手順には `"once": true` を付ける。
   - `select` の反映確認は未検査（常に `ok`）なので、選択結果が重要なら `verify` で `.value` や表示テキストを検査する。
@@ -129,7 +130,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 | `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
 - **引き継ぎと反例駆動の手順書精密化（CEGAR ループ）**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っており、観測済みの場合は **`stopped_snapshot`**（停止時点の実スナップショット、機密値伏字済み）が JSON に同梱される。`stopped_at_step`・`stopped_snapshot`・`steps[]` をそのまま反例として読み、次のどちらかで続ける。
-  - 途中再開と手順書の更新（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、`agent-browser-decisions run <plan.json> --session <session> --from-step <stopped_at_step> --close` で再開する（step 1 から丸ごと再実行しない）。完走した修正版は差分を示し、共有 `plans/` は利用者確認のうえで保存先を更新すれば次回から1発で回る。
+  - 途中再開と手順書の更新（定型化したい場合）: `stopped_snapshot` から欠けていた操作や正しいラベルを特定して手順書を修正し、停止時の `url` を添えて `agent-browser-decisions run <plan.json> --session <session> --from-step <stopped_at_step> --expect-url "<url>" --close` で再開する（step 1 から丸ごと再実行しない）。完走した修正版は差分を示し、共有 `plans/` は利用者確認のうえで保存先を更新すれば次回から1発で回る。
   - 直接操作: 1〜2手の例外処理なら開いたままの `--session <session>` で直接 `click @eN` … → 終わったら `agent-browser --session <session> close`。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。

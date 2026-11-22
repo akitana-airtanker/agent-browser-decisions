@@ -165,6 +165,14 @@ def main(argv: list[str] | None = None) -> int:
         help="resume from 1-based step N in --session (skips url open and reset)",
     )
     run.add_argument(
+        "--expect-url",
+        default=None,
+        help=(
+            "require current page URL to match this http(s) origin/path prefix before running steps "
+            "(recommended with --from-step or --no-open)"
+        ),
+    )
+    run.add_argument(
         "--var",
         action="append",
         default=[],
@@ -286,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=args.base_url,
         allow_decisions=use_decisions,
         settle_s=args.settle_s,
+        expect_url=args.expect_url,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("problems"):

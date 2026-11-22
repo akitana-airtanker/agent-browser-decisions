@@ -35,6 +35,8 @@ from agent_browser_decisions.core import (
     resolve_step_values,
     same_field_value,
     select_tier1_batch,
+    should_retry_step,
+    url_matches_expected,
     validate_plan,
     validate_run_options,
     verify_batch_results,
@@ -372,6 +374,7 @@ class PlanRunner:
         tiers: list[int] = []
         repeats = 0
         once = bool(step.get("once"))
+        allow_retry = should_retry_step(step)
 
         if step["action"] == "press":
             page = initial_page if initial_page is not None else browser.observe()
@@ -451,14 +454,21 @@ class PlanRunner:
                 )
                 return False, None
 
-            outcome, next_page = self._effect(browser, step, element, page, allow_keyboard=not once)
+            allow_kb = allow_retry and repeats == 0
+            outcome, next_page = self._effect(browser, step, element, page, allow_keyboard=allow_kb)
             last_attempt = {"chose": element["name"][:80], "effect": outcome}
             if once:
                 break
-            if outcome == "no_effect" and repeats < 1:
+            if allow_retry and outcome == "no_effect" and repeats < 1:
                 repeats += 1
                 continue
-            if outcome == "wrong_target" and (tier == 1 or step.get("expect") == "navigation") and repeats < 1:
+            if (
+                allow_retry
+                and outcome == "wrong_target"
+                and (tier == 1 or step.get("expect") == "navigation")
+                and element["role"] != "link"
+                and repeats < 1
+            ):
                 repeats += 1
                 continue
             if outcome == "wrong_target" and tier == 2 and len(excluded) < self.retries:
@@ -507,6 +517,7 @@ class PlanRunner:
         close_on_success: bool = False,
         allow_decisions: bool | None = None,
         settle_s: float | None = None,
+        expect_url: str | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """Validate, resolve vars/env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
@@ -534,6 +545,7 @@ class PlanRunner:
                 reload_page=reload_page,
                 keep_open=keep_open,
                 close_on_success=close_on_success,
+                expect_url=expect_url,
             )
         )
         if problems:
@@ -634,12 +646,27 @@ class PlanRunner:
                         }
 
                 verify_expr = wrap_verify_with_vars(plan["verify"], merged_vars) if plan.get("verify") else None
-                completed = True
+                expect_url_failed = False
+                if expect_url:
+                    try:
+                        current = browser.current_url()
+                    except (RuntimeError, subprocess.TimeoutExpired, OSError) as failure:
+                        current = ""
+                        error = redact_text(f"expect_url check failed: {failure}", secrets)[:300]
+                        expect_url_failed = True
+                    else:
+                        if not url_matches_expected(current, expect_url):
+                            error = redact_text(
+                                f"expect_url mismatch: expected {expect_url!r}, got {current!r}",
+                                secrets,
+                            )[:300]
+                            expect_url_failed = True
+                completed = not expect_url_failed
                 carried_page: dict[str, Any] | None = None
                 fused_verified: tuple[bool, Any] | None = None
                 fused_url: str | None = None
                 offset = 0
-                while offset < len(resolved_steps):
+                while completed and offset < len(resolved_steps):
                     index = from_step + offset
                     if mode == "label":
                         batched, batch_verified, batch_url = self._try_tier1_batch(
@@ -757,6 +784,8 @@ class PlanRunner:
                 profile = None
 
         stopped = next((e["step"] for e in log if not e.get("ok")), None)
+        if stopped is None and not completed and error and error.startswith("expect_url "):
+            stopped = from_step
         result: dict[str, Any] = {
             "ok": ok,
             "session": session or env_map.get("AGENT_BROWSER_SESSION", "default"),
@@ -813,6 +842,7 @@ def run_plan_file(
     base_url: str | None = None,
     allow_decisions: bool | None = None,
     settle_s: float | None = None,
+    expect_url: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Convenience entry point using the default PlanRunner."""
@@ -835,5 +865,6 @@ def run_plan_file(
         close_on_success=close_on_success,
         allow_decisions=allow_decisions,
         settle_s=settle_s,
+        expect_url=expect_url,
         environ=environ,
     )

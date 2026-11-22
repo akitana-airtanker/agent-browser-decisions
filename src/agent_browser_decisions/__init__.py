@@ -18,12 +18,15 @@ from agent_browser_decisions.core import (
     resolve_decision_config,
     resolve_step_settle_s,
     resolve_step_values,
+    should_retry_step,
+    url_matches_expected,
+    validate_expect_url,
     validate_plan,
     validate_run_options,
 )
 from agent_browser_decisions.runner import PlanRunner, run_plan_file
 
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 
 __all__ = [
     "NONE_CHOICE",
@@ -45,6 +48,9 @@ __all__ = [
     "resolve_decision_config",
     "resolve_step_settle_s",
     "resolve_step_values",
+    "should_retry_step",
+    "url_matches_expected",
+    "validate_expect_url",
     "run_plan_file",
     "validate_plan",
     "validate_run_options",

@@ -441,7 +441,8 @@ def test_examples_and_json_schema_match_core_contracts() -> None:
     for action, roles in ROLES.items():
         assert set(by_action[action]["properties"]["role"]["enum"]) == roles
         assert set(by_action[action]["properties"]["match"]["enum"]) == VALID_MATCH_MODES
-        assert "if" in by_action[action] and "then" in by_action[action]
+        assert "retry" in by_action[action]["properties"]
+        assert "allOf" in by_action[action] and len(by_action[action]["allOf"]) >= 2
 
 
 # ---------- Multi-provider (OpenAI / System One / Gemini) properties ----------
@@ -798,3 +799,73 @@ def test_validate_plan_settle_s_and_step_timeout_s() -> None:
     assert any(
         "press" in p for p in validate_plan({"steps": [{"action": "press", "value": "Enter", "timeout_s": 0.5}]})
     )
+
+
+@given(
+    st.sampled_from(["click", "upload", "press", "fill", "check", "select"]),
+    st.one_of(st.none(), st.booleans()),
+    st.one_of(st.none(), st.booleans()),
+)
+def test_should_retry_step_safety_contract(action: str, retry: bool | None, once: bool | None) -> None:
+    from agent_browser_decisions.core import should_retry_step
+
+    step: dict[str, object] = {"action": action, "target": "Go"}
+    if retry is not None:
+        step["retry"] = retry
+    if once is not None:
+        step["once"] = once
+    got = should_retry_step(step)
+    if once is True:
+        assert got is False
+    elif retry is not None:
+        assert got is retry
+    elif action in ("fill", "check", "select"):
+        assert got is True
+    else:
+        assert got is False
+
+
+def test_validate_plan_retry_and_once_conflict() -> None:
+    assert validate_plan({"steps": [{"action": "click", "target": "Go", "retry": True}]}) == []
+    assert validate_plan({"steps": [{"action": "click", "target": "Go", "retry": False}]}) == []
+    assert any(
+        "retry=true cannot be combined with once=true" in p
+        for p in validate_plan({"steps": [{"action": "click", "target": "Go", "retry": True, "once": True}]})
+    )
+    assert any(
+        "retry must be a boolean" in p
+        for p in validate_plan({"steps": [{"action": "click", "target": "Go", "retry": "yes"}]})
+    )
+
+
+@given(
+    st.sampled_from(["http", "https"]),
+    st.from_regex(r"[a-z]{3,8}\.[a-z]{2,4}", fullmatch=True),
+    st.from_regex(r"/[a-z0-9]{1,8}(/[a-z0-9]{1,8})?", fullmatch=True),
+    st.from_regex(r"[a-z0-9]{1,6}", fullmatch=True),
+)
+def test_url_matches_expected_origin_and_segment_boundaries(
+    scheme: str, host: str, path: str, suffix: str
+) -> None:
+    from agent_browser_decisions.core import url_matches_expected, validate_expect_url
+
+    expected = f"{scheme}://{host}{path}"
+    assert validate_expect_url(expected) is None
+    assert url_matches_expected(expected, expected) is True
+    assert url_matches_expected(f"{expected}/{suffix}", expected) is True
+    assert url_matches_expected(f"{expected}?q=1#top", expected) is True
+    # Host spoofing must never match
+    assert url_matches_expected(f"{scheme}://{host}.evil.test{path}", expected) is False
+    # Path sibling prefix without '/' boundary must never match
+    assert url_matches_expected(f"{scheme}://{host}{path}-{suffix}", expected) is False
+    # Different scheme must never match
+    other_scheme = "http" if scheme == "https" else "https"
+    assert url_matches_expected(f"{other_scheme}://{host}{path}", expected) is False
+
+
+def test_validate_run_options_expect_url() -> None:
+    plan = {"steps": [{"action": "click", "target": "Go"}]}
+    assert validate_run_options(plan, expect_url="https://example.test/orders") == []
+    assert validate_run_options(plan, expect_url="example.test/orders") != []
+    assert validate_run_options(plan, expect_url="javascript:alert(1)") != []
+    assert validate_run_options(plan, expect_url="https://example.test/a b") != []

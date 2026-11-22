@@ -93,7 +93,8 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 | `describe` | all except `press` | Human-readable hint sent to Tier 2 when disambiguating |
 | `expect` | all | `"navigation"` to require a document URL change |
 | `navigates` | `click` on `link` | Set `false` for SPA links (modals, tabs) that do not change the URL |
-| `once` | all | Execute at most once; disables retries and keyboard Enter fallback |
+| `once` | all | Execute at most once across all tiers (also disables Tier 2 alternate-ref retries and `fill`/`check` retries; cannot combine with `retry: true`) |
+| `retry` | all except `press` | Opt-in same-element retry (`true` enables 1 retry on `no_effect`, or keyboard `focus` + `Enter` once on a wrapped `link`). Default is `false` for `click`/`upload`/`press` (at-most-once on the same element) and `true` for `fill`/`check`/`select` |
 | `decide` | all except `press` | `true` skips Tier 1 and sends candidates directly to Tier 2 (cannot combine with `nth` or `match`) |
 
 ### Top-level fields
@@ -136,7 +137,7 @@ agent-browser --session abd-1763574000000-12345 click @e12
 agent-browser --session abd-1763574000000-12345 close
 
 # Option 2: fix the plan and resume from step 4 in the same session
-agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-step 4
+agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-step 4 --expect-url "https://example.com/form"
 ```
 
 ## CLI reference
@@ -145,7 +146,7 @@ agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-s
 agent-browser-decisions doctor [--env-file PATH] [--provider PROVIDER] [--model MODEL] [--base-url URL]
 agent-browser-decisions validate <plan.json | -> [--var KEY=VALUE]...
 agent-browser-decisions run <plan.json | -> [--decisions] [--mode label|decide] [--session NAME] [--from-step N] \
-                                            [--var KEY=VALUE]... [--no-open] [--reload] [--keep-open] [--close] \
+                                            [--expect-url URL_PREFIX] [--var KEY=VALUE]... [--no-open] [--reload] [--keep-open] [--close] \
                                             [--provider openai|openrouter|gemini|typesafe|liquid] [--model MODEL] [--base-url URL] \
                                             [--env-file PATH] [--settle-s 3.0] [--timeout 60] [--api-timeout 30]
 agent-browser-decisions profile
@@ -195,14 +196,14 @@ Steps act only on a settled page (two consecutive identical snapshots). Exhauste
 | `fill` | Field read-back equals expected value (preserves whitespace & newlines) | Repeat once |
 | `check` | `is checked` returns `true` | Repeat once |
 | `select` | Unchecked (`ok`) — assert selected state in `verify` when critical | — |
-| `link` click (`navigates` ≠ `false`), `expect: "navigation"` | Document URL changes (or fragment changes for `#route` links) | Keyboard `focus` + `Enter`, then repeat once (Tier 1) or exclude ref (Tier 2) |
-| Other `click`, `press` | Snapshot or URL changes within 1 s | Repeat once |
+| `link` click (`navigates` ≠ `false`), `expect: "navigation"` | Document URL changes (or fragment changes for `#route` links) | Stop immediately by default (safe at-most-once on same element). With `retry: true`, tries keyboard `focus` + `Enter` once (max 2 activations). With `--decisions` Tier 2 (unless `once: true`), may exclude ref and try another candidate |
+| Other `click`, `press` | Snapshot or URL changes within 1 s | Stop immediately by default (`click` retries once only when `retry: true`) |
 
 ## Safety & operational guarantees
 
 - **Opt-in Tier 2 & bounded model surface**: Tier 2 is disabled by default so ambient API keys never send page URLs or labels to external endpoints unless you pass `--decisions` (or `--provider` / `--model` / `--mode decide`). When enabled, Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
 - **Unicode & injection safety**: Normalisation preserves non-ASCII scripts (Japanese, CJK, Cyrillic, Greek, dakuten) and rejects empty labels. Snapshot parsing uses escape-aware quoting so embedded `\" [ref=eN]` strings in page text cannot spoof element refs.
-- **No silent misclicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element.
+- **No silent misclicks or double-clicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element. `click` and `link` steps execute at most once on the same element by default (no automatic `Enter` fallback or second click unless `retry: true`). Pass `--expect-url` with `--from-step` / `--no-open` to abort before touching any step if the live session drifted to another origin or path.
 - **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets are redacted (`[REDACTED]`) from error output.
 - **Fault tolerance & cleanup**: Tier 2 retries transient HTTP `429` (honouring `Retry-After`), `5xx`, and network/timeout errors with bounded backoff. `SIGINT`/`SIGTERM` closes owned sessions and deletes temporary Chrome profiles cleanly.
 - **Formally verified lifecycle**: Session ownership, profile cleanup, `session_open` reporting, `once` at-most-once execution, and non-silent failure invariants are verified against both TLA+/TLC and Hypothesis stateful tests.
