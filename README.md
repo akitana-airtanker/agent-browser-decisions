@@ -86,7 +86,7 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 | `target` | all except `press` | Accessible label from `agent-browser snapshot -i` (Unicode NFKC exact match by default; use `match: "prefix"` or `match: "regex"` to opt in) |
 | `value` | `fill`, `select`, `press` | Literal text to enter, option to select, or key name to press |
 | `value_env` | `fill` (alt. to `value`) | Environment variable name resolved at runtime; missing vars fail fast (`exit 2`) before opening a browser |
-| `secret` | `fill` | Redact the value (`[REDACTED]`) from any error output. Defaults to `true` when `value_env` is used |
+| `secret` | `fill` | Redact the value (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, and Tier 2 candidate payloads (including prior steps on `--from-step` when env vars remain set). Defaults to `true` when `value_env` is used |
 | `role` | all except `press` | Expected ARIA role (must be compatible with `action`); also waits up to 3 s for that role to appear. Omit for unseen elements |
 | `nth` | all except `press` | 1-based positional pick among matching elements. Never falls back to Tier 2 or unrelated elements |
 | `match` | all except `press` | `"exact"` (default), `"prefix"` (normalised prefix match for dynamic label suffixes), or `"regex"` (case-insensitive regex against raw names) |
@@ -204,7 +204,7 @@ Steps act only on a settled page (two consecutive identical snapshots). Exhauste
 - **Opt-in Tier 2 & bounded model surface**: Tier 2 is disabled by default so ambient API keys never send page URLs or labels to external endpoints unless you pass `--decisions` (or `--provider` / `--model` / `--mode decide`). When enabled, Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
 - **Unicode & injection safety**: Normalisation preserves non-ASCII scripts (Japanese, CJK, Cyrillic, Greek, dakuten) and rejects empty labels. Snapshot parsing uses escape-aware quoting so embedded `\" [ref=eN]` strings in page text cannot spoof element refs.
 - **No silent misclicks or double-clicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element. `click` and `link` steps execute at most once on the same element by default (no automatic `Enter` fallback or second click unless `retry: true`). Pass `--expect-url` with `--from-step` / `--no-open` to abort before touching any step if the live session drifted to another origin or path.
-- **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets are redacted (`[REDACTED]`) from error output.
+- **Secret hygiene**: `value_env` keeps credentials out of plan JSON; resolved secrets (including prior-step secrets whose env vars remain set on `--from-step`) are redacted (`[REDACTED]`) from error output, `stopped_snapshot`, `verify_value`, and Tier 2 candidate payloads.
 - **Fault tolerance & cleanup**: Tier 2 retries transient HTTP `429` (honouring `Retry-After`), `5xx`, and network/timeout errors with bounded backoff. `SIGINT`/`SIGTERM` closes owned sessions and deletes temporary Chrome profiles cleanly.
 - **Formally verified lifecycle**: Session ownership, profile cleanup, `session_open` reporting, `once` at-most-once execution, and non-silent failure invariants are verified against both TLA+/TLC and Hypothesis stateful tests.
 

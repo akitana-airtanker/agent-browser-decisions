@@ -8,6 +8,7 @@ from agent_browser_decisions.core import (
     DecisionConfig,
     ProviderSpec,
     chosen_ref,
+    collect_redaction_secrets,
     decision_request,
     evaluate_verify_output,
     match_label,
@@ -15,6 +16,7 @@ from agent_browser_decisions.core import (
     parse_dotenv,
     parse_snapshot,
     redact_text,
+    redact_value,
     resolve_decision_config,
     resolve_step_settle_s,
     resolve_step_values,
@@ -26,7 +28,7 @@ from agent_browser_decisions.core import (
 )
 from agent_browser_decisions.runner import PlanRunner, run_plan_file
 
-__version__ = "0.9.4"
+__version__ = "0.9.5"
 
 __all__ = [
     "NONE_CHOICE",
@@ -38,6 +40,7 @@ __all__ = [
     "ProviderSpec",
     "__version__",
     "chosen_ref",
+    "collect_redaction_secrets",
     "decision_request",
     "evaluate_verify_output",
     "match_label",
@@ -45,6 +48,7 @@ __all__ = [
     "parse_dotenv",
     "parse_snapshot",
     "redact_text",
+    "redact_value",
     "resolve_decision_config",
     "resolve_step_settle_s",
     "resolve_step_values",

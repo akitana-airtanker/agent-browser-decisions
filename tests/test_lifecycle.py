@@ -1332,3 +1332,111 @@ def test_cli_expect_url_flag_forwarding(tmp_path: Any, monkeypatch: Any, capsys:
     assert cli.main(["run", str(plan_path), "--session", "s", "--expect-url", "https://example.test/orders"]) == 0
     capsys.readouterr()
     assert recorded == ["https://example.test/orders"]
+
+
+def test_resume_redacts_prior_step_secrets_across_outputs_and_tier2() -> None:
+    secret_env = "sk-prior-step-secret-777"
+    secret_lit = "lit-pin-secret-888"
+
+    class RecordingDecisions(DecisionsClient):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.payloads: list[dict[str, Any]] = []
+
+        def decide(self, payload: dict[str, Any]) -> dict[str, Any]:
+            self.payloads.append(payload)
+            return {
+                "decisions": [
+                    {"question_id": "element", "status": "answered", "choice": "e2", "confidence": 0.9}
+                ]
+            }
+
+    # Case A: resume fails on step 3 -> prior-step env + literal secrets redacted from stopped_snapshot & url
+    def make_fail_browser(session: str | None = None, **kwargs: Any) -> FakeBrowser:
+        b = FakeBrowser(session, **kwargs)
+        b.url = f"https://example.test/form?k={secret_env}"
+        b.snap = (
+            f'- textbox "API Key" [ref=e1]: {secret_env}\n'
+            f'- textbox "PIN" [ref=e2]: {secret_lit}\n'
+            '- button "Other" [ref=e3]'
+        )
+        return b
+
+    plan_fail = {
+        "url": "https://example.test/form",
+        "steps": [
+            {"action": "fill", "target": "API Key", "value_env": "PRIOR_TOKEN"},
+            {"action": "fill", "target": "PIN", "value": secret_lit, "secret": True},
+            {"action": "click", "target": "Missing Button"},
+        ],
+    }
+    runner_fail = PlanRunner(
+        browser_factory=make_fail_browser,
+        decisions_factory=RecordingDecisions,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_fail = runner_fail.run_plan_file(
+        plan_fail,
+        session="live-sess",
+        from_step=3,
+        environ={"PRIOR_TOKEN": secret_env},
+    )
+    assert res_fail["ok"] is False
+    dumped_fail = json.dumps(res_fail)
+    assert secret_env not in dumped_fail
+    assert secret_lit not in dumped_fail
+    assert "[REDACTED]" in (res_fail.get("stopped_snapshot") or "")
+
+    # Case B: unset prior env var does NOT fail resume, and verify_value + Tier 2 payload are redacted
+    recorded_clients: list[RecordingDecisions] = []
+
+    def make_decisions(**kwargs: Any) -> RecordingDecisions:
+        c = RecordingDecisions(**kwargs)
+        recorded_clients.append(c)
+        return c
+
+    def make_t2_browser(session: str | None = None, **kwargs: Any) -> FakeBrowser:
+        b = FakeBrowser(
+            session,
+            verify_out=json.dumps({"ok": True, "echo": secret_lit}),
+            **kwargs,
+        )
+        b.url = f"https://example.test/form?pin={secret_lit}"
+        b.snap = (
+            f'- button "Save {secret_lit}" [ref=e1]\n'
+            '- button "Confirm" [ref=e2]'
+        )
+        return b
+
+    plan_t2 = {
+        "url": "https://example.test/form",
+        "steps": [
+            {"action": "fill", "target": "API Key", "value_env": "UNSET_PRIOR_TOKEN"},
+            {"action": "fill", "target": "PIN", "value": secret_lit, "secret": True},
+            {"action": "click", "target": "Submit"},
+        ],
+        "verify": "({ok: true})",
+    }
+    runner_t2 = PlanRunner(
+        browser_factory=make_t2_browser,
+        decisions_factory=make_decisions,
+        settle_s=0.0,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_t2 = runner_t2.run_plan_file(
+        plan_t2,
+        session="live-sess",
+        from_step=3,
+        allow_decisions=True,
+        environ={},
+    )
+    assert res_t2["ok"] is True
+    assert secret_lit not in json.dumps(res_t2)
+    assert res_t2["verify_value"] == {"ok": True, "echo": "[REDACTED]"}
+    assert len(recorded_clients) == 1 and len(recorded_clients[0].payloads) == 1
+    dumped_req = json.dumps(recorded_clients[0].payloads[0])
+    assert secret_lit not in dumped_req
+    assert "[REDACTED]" in dumped_req

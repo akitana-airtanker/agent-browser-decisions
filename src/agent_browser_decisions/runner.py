@@ -21,6 +21,7 @@ from agent_browser_decisions.core import (
     apply_plan_vars,
     build_batch_commands,
     chosen_ref,
+    collect_redaction_secrets,
     command_for,
     compatible,
     decision_request,
@@ -31,6 +32,7 @@ from agent_browser_decisions.core import (
     hash_route,
     match_label,
     redact_text,
+    redact_value,
     resolve_step_settle_s,
     resolve_step_values,
     same_field_value,
@@ -128,6 +130,7 @@ class PlanRunner:
         settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
         last_raw_out: list[str] | None = None,
+        secrets: set[str] | frozenset[str] = frozenset(),
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
         if mode == "decide" and not allow_decisions:
             page = initial_page if initial_page is not None else browser.observe()
@@ -180,7 +183,15 @@ class PlanRunner:
         provider = getattr(decisions, "provider", DEFAULT_PROVIDER)
         model = getattr(decisions, "model", None)
         response = decisions.decide(
-            decision_request(step, goal, candidates, page["url"], model=model, provider=provider)
+            decision_request(
+                step,
+                goal,
+                candidates,
+                page["url"],
+                model=model,
+                provider=provider,
+                secrets=secrets,
+            )
         )
         ref, info = chosen_ref(response)
         if ref:
@@ -415,6 +426,7 @@ class PlanRunner:
                 settle_s=settle_s,
                 initial_page=seed_page,
                 last_raw_out=last_raw_out,
+                secrets=secrets,
             )
             seed_page = None
             tiers.append(tier)
@@ -446,7 +458,7 @@ class PlanRunner:
                     entry
                     | {
                         "ok": False,
-                        "chose": element["name"][:80],
+                        "chose": redact_text(element["name"], secrets)[:80],
                         "error": redact_text(str(error), secrets)[:200],
                         "ms": round((time.perf_counter() - started) * 1000),
                         "metrics": metrics.summary(),
@@ -456,7 +468,7 @@ class PlanRunner:
 
             allow_kb = allow_retry and repeats == 0
             outcome, next_page = self._effect(browser, step, element, page, allow_keyboard=allow_kb)
-            last_attempt = {"chose": element["name"][:80], "effect": outcome}
+            last_attempt = {"chose": redact_text(element["name"], secrets)[:80], "effect": outcome}
             if once:
                 break
             if allow_retry and outcome == "no_effect" and repeats < 1:
@@ -479,7 +491,7 @@ class PlanRunner:
         step_ok = outcome not in ("no_effect", "wrong_target")
         entry |= {
             "ok": step_ok,
-            "chose": element["name"][:80],
+            "chose": redact_text(element["name"], secrets)[:80],
             "effect": outcome,
             "excluded": len(excluded),
             "repeats": repeats,
@@ -562,6 +574,8 @@ class PlanRunner:
             env_map,
             start_index=from_step,
         )
+        if from_step > 1:
+            secrets |= collect_redaction_secrets(plan["steps"][: from_step - 1], env_map)
         if env_problems:
             return {
                 "ok": False,
@@ -791,11 +805,11 @@ class PlanRunner:
             "session": session or env_map.get("AGENT_BROWSER_SESSION", "default"),
             "session_open": session_open,
             "verified": verified,
-            "verify_value": verify_value,
+            "verify_value": redact_value(verify_value, secrets),
             "stopped_at_step": stopped,
             "error": error,
             "elapsed_ms": round((time.perf_counter() - started) * 1000),
-            "url": url,
+            "url": redact_text(url, secrets) if isinstance(url, str) else url,
             "steps": [
                 {
                     k: e.get(k)

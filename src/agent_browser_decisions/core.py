@@ -10,7 +10,7 @@ import math
 import re
 import unicodedata
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -403,6 +403,7 @@ def decision_request(
     *,
     model: str | None = None,
     provider: str = DEFAULT_PROVIDER,
+    secrets: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Build a bounded decision request whose choices are restricted to observed refs only."""
     spec = PROVIDERS.get(provider.strip().lower())
@@ -410,10 +411,13 @@ def decision_request(
         allowed = ", ".join(PROVIDER_ORDER)
         raise ValueError(f"unknown provider {provider!r}; expected one of: {allowed}")
     resolved_model = model or spec.default_model
-    context_text = f"Page URL: {url}\nGoal: {goal}"
+    safe_url = redact_text(url, secrets)
+    safe_goal = redact_text(goal, secrets)
+    safe_target = redact_text(str(step.get("describe") or step["target"]), secrets)
+    context_text = f"Page URL: {safe_url}\nGoal: {safe_goal}"
     prompt_text = (
         f"Action: {step['action']}\n"
-        f"Target: {step.get('describe') or step['target']}\n"
+        f"Target: {safe_target}\n"
         "Which observed element should this step act on?"
     )
     if spec.protocol == "openai":
@@ -424,7 +428,10 @@ def decision_request(
                 {
                     "id": "element",
                     "prompt": prompt_text,
-                    "choices": [{"value": e["ref"], "description": describe(e)} for e in candidates[:MAX_CHOICES]],
+                    "choices": [
+                        {"value": e["ref"], "description": redact_text(describe(e), secrets)}
+                        for e in candidates[:MAX_CHOICES]
+                    ],
                     "allow_abstention": True,
                 }
             ],
@@ -432,7 +439,9 @@ def decision_request(
 
     # System One (TypeSafe Jev, Liquid d1/d1.2) and Gemini Decisions lack a native
     # allow_abstention flag on `choice`, so reserve 1 slot of MAX_CHOICES for NONE_CHOICE.
-    criteria: dict[str, str] = {e["ref"]: describe(e) for e in candidates[: MAX_CHOICES - 1]}
+    criteria: dict[str, str] = {
+        e["ref"]: redact_text(describe(e), secrets) for e in candidates[: MAX_CHOICES - 1]
+    }
     criteria[NONE_CHOICE] = "None of the observed elements matches this step"
     context_key = "input" if spec.protocol == "gemini" else "state"
     return {
@@ -635,6 +644,24 @@ def redact_text(text: str, secrets: set[str] | frozenset[str]) -> str:
         if secret:
             out = out.replace(secret, "[REDACTED]")
     return out
+
+
+def redact_value(value: Any, secrets: set[str] | frozenset[str]) -> Any:
+    """Recursively scrub resolved secret values from JSON-like return values (pure)."""
+    if not secrets or value is None:
+        return value
+    if isinstance(value, str):
+        return redact_text(value, secrets)
+    if isinstance(value, list):
+        return [redact_value(item, secrets) for item in value]
+    if isinstance(value, tuple):
+        return [redact_value(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {
+            (redact_text(k, secrets) if isinstance(k, str) else k): redact_value(v, secrets)
+            for k, v in value.items()
+        }
+    return value
 
 
 MAX_STOPPED_SNAPSHOT_CHARS = 4000
@@ -858,6 +885,24 @@ def resolve_step_values(
             if step.get("secret") is True and isinstance(step.get("value"), str) and step["value"]:
                 secrets.add(step["value"])
     return resolved, secrets, problems
+
+
+def collect_redaction_secrets(
+    steps: Sequence[Mapping[str, Any]],
+    environ: Mapping[str, str],
+) -> set[str]:
+    """Collect best-effort secrets from skipped prior steps without failing on unset env vars (pure)."""
+    secrets: set[str] = set()
+    for step in steps:
+        if "value_env" in step:
+            if step.get("secret", True):
+                var_name = step["value_env"]
+                val = environ.get(var_name) if isinstance(var_name, str) else None
+                if val:
+                    secrets.add(val)
+        elif step.get("secret") is True and isinstance(step.get("value"), str) and step["value"]:
+            secrets.add(step["value"])
+    return secrets
 
 
 def parse_var_args(raw_vars: list[str] | None) -> tuple[dict[str, str], list[str]]:

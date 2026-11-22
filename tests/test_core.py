@@ -894,3 +894,57 @@ def test_validate_run_options_expect_url() -> None:
     assert validate_run_options(plan, expect_url="example.test/orders") != []
     assert validate_run_options(plan, expect_url="javascript:alert(1)") != []
     assert validate_run_options(plan, expect_url="https://example.test/a b") != []
+
+
+@given(
+    st.from_regex(r"[A-Za-z0-9_-]{6,16}", fullmatch=True),
+    st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126), min_size=0, max_size=20),
+)
+def test_redact_value_recursive_property(secret: str, prefix: str) -> None:
+    from agent_browser_decisions.core import redact_value
+
+    payload = {
+        "str": f"{prefix}{secret}",
+        "nested": [1, True, None, {"k_" + secret: f"val={secret}"}],
+    }
+    redacted = redact_value(payload, {secret})
+    assert secret not in json.dumps(redacted)
+    assert redacted["nested"][0] == 1
+    assert redacted["nested"][1] is True
+    assert redacted["nested"][2] is None
+
+
+def test_collect_redaction_secrets_best_effort() -> None:
+    from agent_browser_decisions.core import collect_redaction_secrets
+
+    steps = [
+        {"action": "fill", "target": "API Key", "value_env": "MY_KEY"},
+        {"action": "fill", "target": "User", "value_env": "MY_USER", "secret": False},
+        {"action": "fill", "target": "Missing", "value_env": "NOT_SET"},
+        {"action": "fill", "target": "PIN", "value": "987654", "secret": True},
+        {"action": "click", "target": "Next"},
+    ]
+    found = collect_redaction_secrets(steps, {"MY_KEY": "sk-secret-123", "MY_USER": "alice"})
+    assert found == {"sk-secret-123", "987654"}
+
+
+def test_decision_request_redacts_secrets() -> None:
+    from agent_browser_decisions.core import decision_request
+
+    step = {"action": "click", "target": "Submit sk-secret-123"}
+    candidates = [
+        {"ref": "e1", "role": "textbox", "name": "API Key", "value": "sk-secret-123", "attrs": ""},
+        {"ref": "e2", "role": "button", "name": "Submit", "value": "", "attrs": ""},
+    ]
+    for provider in ("openai", "gemini", "typesafe"):
+        req = decision_request(
+            step,
+            "Save sk-secret-123",
+            candidates,
+            "https://example.test/?token=sk-secret-123",
+            provider=provider,
+            secrets={"sk-secret-123"},
+        )
+        dumped = json.dumps(req)
+        assert "sk-secret-123" not in dumped
+        assert "[REDACTED]" in dumped
