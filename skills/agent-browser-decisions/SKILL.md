@@ -87,13 +87,14 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   - `navigates`（boolean。URL 遷移しない `link` で `false` を指定）
   - `once`（boolean。`true` で再試行と Enter フォールバックを無効化し最大1回実行）
   - `decide`（boolean。`true` で第1段階を飛ばし第2段階へ直接送る。`nth` / `match` と併用不可。実行時に `--decisions` 等で第2段階を有効化する必要あり）
+  - `timeout_s`（0 以上の数値。`press` 以外で要素出現・安定待ちの上限秒をステップ単位で上書き。計画全体の `settle_s` や CLI `--settle-s` で一括指定も可能。`0` や `0.5` で早めに諦めて第3段階へ返せる）
 
 ## Plan rules
 
 - **第2段階（Decisions API）は既定オフ**: `run` は既定で第1段階＋第3段階のみで動作し、環境変数に API キーがあっても外部 API へ URL・候補名を送らない。同名リンク等で第2段階を使いたいときだけ `--decisions`（または `--provider` / `--model` / `--mode decide`）を明示する。
 - **機密値は `value_env` を使う**: パスワード・API キー・トークンは手順書 JSON に平文で書かず、`value_env` で環境変数から渡す。
 - **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く。短縮しすぎると前方一致で別ボタン（例: `"Log in"` → `"Log in with Google"`）に当たることがある。
-- **動的に開く部品と `role`**: カレンダーや候補リストなど操作の途中で開く部品は、可能なら事前に1度開いて確認する。`role` はスナップショットで実際に確認した要素にだけ書く（推測で書くと3秒待ってから解除されるか、正しい要素が候補から外れる）。未確認のまま書く手順は `role` を省き `describe` を添える。
+- **動的に開く部品は手前で止めて段階作成する**: カレンダーやモーダルなど開始画面に見えない部品がある場合は、推測で全手順を一発書きせず、開くクリックまでを書いて `--keep-open` で実行し、開いた画面の `snapshot -i` を確認してから後半を手順書へ追記して `--session <id> --from-step N --close` で仕上げる。静的画面や初回検証でラベル不一致を早く検知したいときは `--settle-s 0.5`（または `0`）で早めに諦めて引き継ぐ。`role` はスナップショットで確認済みの要素にだけ書く。
 - **順番と同一ラベル**: 「3番目の結果」のような順番指定は判断モデルに数えさせず `nth` を使う（例: `{"action": "click", "target": "^\\d+\\s*comments?$", "match": "regex", "nth": 3}`）。各商品の「Add to cart」のように項目名を含まない同一ラベルが並ぶとき、順番が固定なら `nth`、並び順が変わりうるなら `agent-browser` の直接操作に切り替える。既存手順書の再実行前も `nth` の位置と対象が一致しているか確かめる。
 - **遷移・副作用・`select`**:
   - URL が変わらない `link`（SPA のタブ切替やモーダルを開くリンク）は `"navigates": false` を付ける（付けないと URL 変化を待って Enter を押し、`wrong_target` で止まる）。

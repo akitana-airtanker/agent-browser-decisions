@@ -51,6 +51,10 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "settle_s": {
+      "type": "number",
+      "minimum": 0
     }
   },
   "if": {
@@ -126,6 +130,10 @@
             },
             "once": {
               "type": "boolean"
+            },
+            "timeout_s": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "if": {
@@ -220,6 +228,10 @@
             },
             "once": {
               "type": "boolean"
+            },
+            "timeout_s": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "if": {
@@ -295,6 +307,10 @@
             },
             "once": {
               "type": "boolean"
+            },
+            "timeout_s": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "if": {
@@ -367,6 +383,10 @@
             },
             "once": {
               "type": "boolean"
+            },
+            "timeout_s": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "if": {
@@ -459,6 +479,10 @@
             },
             "once": {
               "type": "boolean"
+            },
+            "timeout_s": {
+              "type": "number",
+              "minimum": 0
             }
           },
           "if": {

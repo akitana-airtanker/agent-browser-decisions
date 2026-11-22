@@ -103,6 +103,16 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _nonneg_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(f"invalid number: {value!r}") from err
+    if parsed < 0 or parsed != parsed or parsed == float("inf"):
+        raise argparse.ArgumentTypeError("value must be a finite non-negative number")
+    return parsed
+
+
 def _add_decision_flags(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
         "--provider",
@@ -203,6 +213,15 @@ def main(argv: list[str] | None = None) -> int:
         default=30.0,
         help="per-request decision API timeout in seconds (default: 30)",
     )
+    run.add_argument(
+        "--settle-s",
+        type=_nonneg_float,
+        default=None,
+        help=(
+            "override max element-settle wait in seconds before Tier 2/3 handoff "
+            "(default: plan settle_s or 3.0; 0 fails fast on first snapshot)"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -266,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         base_url=args.base_url,
         allow_decisions=use_decisions,
+        settle_s=args.settle_s,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("problems"):

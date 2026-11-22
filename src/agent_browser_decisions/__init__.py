@@ -15,13 +15,14 @@ from agent_browser_decisions.core import (
     parse_snapshot,
     redact_text,
     resolve_decision_config,
+    resolve_step_settle_s,
     resolve_step_values,
     validate_plan,
     validate_run_options,
 )
 from agent_browser_decisions.runner import PlanRunner, run_plan_file
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "NONE_CHOICE",
@@ -40,6 +41,7 @@ __all__ = [
     "parse_snapshot",
     "redact_text",
     "resolve_decision_config",
+    "resolve_step_settle_s",
     "resolve_step_values",
     "run_plan_file",
     "validate_plan",

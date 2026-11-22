@@ -31,6 +31,7 @@ from agent_browser_decisions.core import (
     hash_route,
     match_label,
     redact_text,
+    resolve_step_settle_s,
     resolve_step_values,
     same_field_value,
     select_tier1_batch,
@@ -122,6 +123,7 @@ class PlanRunner:
         exclude: set[str],
         *,
         allow_decisions: bool = False,
+        settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
         last_raw_out: list[str] | None = None,
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
@@ -131,7 +133,8 @@ class PlanRunner:
                 last_raw_out[:] = [page["raw"]]
             return None, 3, {"reason": "Tier 2 decisions disabled (pass --decisions to enable)"}, page
 
-        deadline = time.perf_counter() + self.settle_s
+        effective_settle = self.settle_s if settle_s is None else settle_s
+        deadline = time.perf_counter() + effective_settle
         previous: str | None = initial_page["raw"] if initial_page is not None else None
         last_status: str | None = None
         while True:
@@ -254,9 +257,11 @@ class PlanRunner:
         self,
         browser: AgentBrowser,
         *,
+        settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        deadline = time.perf_counter() + self.settle_s
+        effective_settle = self.settle_s if settle_s is None else settle_s
+        deadline = time.perf_counter() + effective_settle
         previous: str | None = initial_page["raw"] if initial_page is not None else None
         while True:
             page = browser.observe()
@@ -274,6 +279,7 @@ class PlanRunner:
         log: list[dict[str, Any]],
         *,
         verify_expr: str | None = None,
+        settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
         last_raw_out: list[str] | None = None,
     ) -> tuple[int, tuple[bool, Any] | None, str | None]:
@@ -288,7 +294,7 @@ class PlanRunner:
             return 0, None, None
         started = time.perf_counter()
         metrics.reset()
-        page = self._wait_stable_page(browser, initial_page=initial_page)
+        page = self._wait_stable_page(browser, settle_s=settle_s, initial_page=initial_page)
         if last_raw_out is not None and isinstance(page.get("raw"), str):
             last_raw_out[:] = [page["raw"]]
         selected = select_tier1_batch(remaining_steps, page["elements"])
@@ -356,6 +362,7 @@ class PlanRunner:
         log: list[dict[str, Any]],
         *,
         allow_decisions: bool = False,
+        settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
         last_raw_out: list[str] | None = None,
     ) -> tuple[bool, dict[str, Any] | None]:
@@ -402,6 +409,7 @@ class PlanRunner:
                 step_mode,
                 excluded,
                 allow_decisions=allow_decisions,
+                settle_s=settle_s,
                 initial_page=seed_page,
                 last_raw_out=last_raw_out,
             )
@@ -498,6 +506,7 @@ class PlanRunner:
         keep_open: bool = False,
         close_on_success: bool = False,
         allow_decisions: bool | None = None,
+        settle_s: float | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """Validate, resolve vars/env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
@@ -640,6 +649,12 @@ class PlanRunner:
                             resolved_steps[offset:],
                             log,
                             verify_expr=verify_expr,
+                            settle_s=resolve_step_settle_s(
+                                resolved_steps[offset],
+                                plan_settle_s=plan.get("settle_s"),
+                                cli_settle_s=settle_s,
+                                default=self.settle_s,
+                            ),
                             initial_page=carried_page,
                             last_raw_out=last_observed_raw,
                         )
@@ -664,6 +679,12 @@ class PlanRunner:
                             secrets,
                             log,
                             allow_decisions=use_decisions,
+                            settle_s=resolve_step_settle_s(
+                                step,
+                                plan_settle_s=plan.get("settle_s"),
+                                cli_settle_s=settle_s,
+                                default=self.settle_s,
+                            ),
                             initial_page=carried_page,
                             last_raw_out=last_observed_raw,
                         )
@@ -791,6 +812,7 @@ def run_plan_file(
     model: str | None = None,
     base_url: str | None = None,
     allow_decisions: bool | None = None,
+    settle_s: float | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Convenience entry point using the default PlanRunner."""
@@ -812,5 +834,6 @@ def run_plan_file(
         keep_open=keep_open,
         close_on_success=close_on_success,
         allow_decisions=allow_decisions,
+        settle_s=settle_s,
         environ=environ,
     )

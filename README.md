@@ -102,6 +102,7 @@ See [`examples/`](examples/) for ready-to-run plans (`quotes.json`, `saucedemo-l
 - `url`: initial URL to open before step 1 (required when `reset: true`; omit to continue from the current page in `--session`).
 - `goal`: context string passed to Tier 2.
 - `reset`: `true` launches a fresh isolated session with Chrome's password manager disabled (closed on success or interrupt unless `--keep-open` is passed; kept open on failure for takeover). When reusing an existing `--session`, pass `--no-open` (keep current page) or `--reload` (reload `url` inside the warm Chrome without relaunching).
+- `settle_s`: optional max seconds to wait for each element to appear and settle before failing to Tier 2/3 (default `3.0`; `0` fails fast on the first snapshot). Individual non-`press` steps can also set `timeout_s` to override.
 - `verify`: JavaScript expression polled for up to `verify_timeout_s` (default `10`). JSON-serialisable truthy results (including `{}` and `[]`) or `{"passed": true}` pass; non-JSON output (`undefined`, `NaN`, syntax errors), non-zero exits, and `{"passed": false}` fail.
 
 ## Output & takeover
@@ -146,7 +147,7 @@ agent-browser-decisions validate <plan.json | -> [--var KEY=VALUE]...
 agent-browser-decisions run <plan.json | -> [--decisions] [--mode label|decide] [--session NAME] [--from-step N] \
                                             [--var KEY=VALUE]... [--no-open] [--reload] [--keep-open] [--close] \
                                             [--provider openai|openrouter|gemini|typesafe|liquid] [--model MODEL] [--base-url URL] \
-                                            [--env-file PATH] [--timeout 60] [--api-timeout 30]
+                                            [--env-file PATH] [--settle-s 3.0] [--timeout 60] [--api-timeout 30]
 agent-browser-decisions profile
 agent-browser-decisions --version
 python -m agent_browser_decisions --help

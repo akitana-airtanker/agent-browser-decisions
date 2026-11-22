@@ -152,7 +152,7 @@ CONTEXT_ROLES = {
     "Iframe",
     "iframe",
 }
-PLAN_KEYS = {"url", "goal", "steps", "verify", "reset", "verify_timeout_s", "vars", "$schema"}
+PLAN_KEYS = {"url", "goal", "steps", "verify", "reset", "verify_timeout_s", "settle_s", "vars", "$schema"}
 VAR_PLACEHOLDER = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 BATCHABLE_ACTIONS = frozenset({"fill", "check", "select"})
 STEP_KEYS = {
@@ -169,6 +169,7 @@ STEP_KEYS = {
     "navigates",
     "once",
     "decide",
+    "timeout_s",
 }
 PRESS_KEYS = {"action", "value", "expect", "once"}
 ALL_ACTIONS = tuple(sorted([*ROLES, "press"]))
@@ -633,6 +634,8 @@ def validate_plan(plan: Any) -> list[str]:
         problems.append("reset=true requires a valid url")
     if "verify_timeout_s" in plan and not _is_finite_nonneg_number(plan["verify_timeout_s"]):
         problems.append("verify_timeout_s must be a finite non-negative number")
+    if "settle_s" in plan and not _is_finite_nonneg_number(plan["settle_s"]):
+        problems.append("settle_s must be a finite non-negative number")
     if "vars" in plan:
         raw_vars = plan["vars"]
         if not isinstance(raw_vars, dict):
@@ -701,6 +704,8 @@ def validate_plan(plan: Any) -> list[str]:
                 problems.append(f"step {index}: role for {action} must be one of {sorted(ROLES[action])}")
         if "describe" in step and not isinstance(step["describe"], str):
             problems.append(f"step {index}: describe must be a string")
+        if "timeout_s" in step and not _is_finite_nonneg_number(step["timeout_s"]):
+            problems.append(f"step {index}: timeout_s must be a finite non-negative number")
         if "match" in step:
             if step["match"] != "regex":
                 problems.append(f"step {index}: match must be 'regex'")
@@ -1007,3 +1012,20 @@ def extract_batch_tail(
                 url = res
 
     return verify_passed, verify_value, url
+
+
+def resolve_step_settle_s(
+    step: Mapping[str, Any],
+    *,
+    plan_settle_s: float | None = None,
+    cli_settle_s: float | None = None,
+    default: float = 3.0,
+) -> float:
+    """Resolve effective element-settle timeout: step timeout_s > CLI --settle-s > plan settle_s > default."""
+    if step.get("timeout_s") is not None:
+        return float(step["timeout_s"])
+    if cli_settle_s is not None:
+        return float(cli_settle_s)
+    if plan_settle_s is not None:
+        return float(plan_settle_s)
+    return float(default)

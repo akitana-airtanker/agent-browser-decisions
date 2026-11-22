@@ -723,3 +723,50 @@ def test_upload_validation_and_command() -> None:
     long_snap = format_stopped_snapshot("x" * 100, set(), max_chars=20)
     assert long_snap is not None and long_snap.endswith("... (truncated)")
     assert format_stopped_snapshot("   ", set()) is None
+
+
+@given(
+    st.one_of(st.none(), st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False)),
+    st.one_of(st.none(), st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False)),
+    st.one_of(st.none(), st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False)),
+)
+def test_resolve_step_settle_s_precedence(
+    step_timeout: float | None,
+    cli_settle: float | None,
+    plan_settle: float | None,
+) -> None:
+    from agent_browser_decisions.core import resolve_step_settle_s
+
+    step: dict[str, object] = {"action": "click", "target": "Go"}
+    if step_timeout is not None:
+        step["timeout_s"] = step_timeout
+    got = resolve_step_settle_s(step, plan_settle_s=plan_settle, cli_settle_s=cli_settle, default=3.0)
+    if step_timeout is not None:
+        assert got == step_timeout
+    elif cli_settle is not None:
+        assert got == cli_settle
+    elif plan_settle is not None:
+        assert got == plan_settle
+    else:
+        assert got == 3.0
+
+
+def test_validate_plan_settle_s_and_step_timeout_s() -> None:
+    valid = {
+        "settle_s": 0.5,
+        "steps": [
+            {"action": "click", "target": "Open", "timeout_s": 0},
+            {"action": "fill", "target": "Name", "value": "A", "timeout_s": 2.5},
+        ],
+    }
+    assert validate_plan(valid) == []
+    assert any("settle_s" in p for p in validate_plan({"settle_s": -1, "steps": [{"action": "click", "target": "Go"}]}))
+    assert any(
+        "settle_s" in p for p in validate_plan({"settle_s": True, "steps": [{"action": "click", "target": "Go"}]})
+    )
+    assert any(
+        "timeout_s" in p for p in validate_plan({"steps": [{"action": "click", "target": "Go", "timeout_s": -0.1}]})
+    )
+    assert any(
+        "press" in p for p in validate_plan({"steps": [{"action": "press", "value": "Enter", "timeout_s": 0.5}]})
+    )

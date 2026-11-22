@@ -1124,3 +1124,67 @@ def test_cli_decisions_opt_in_flag(
     assert cli.main(["run", str(plan_path), "--mode", "decide"]) == 0
     capsys.readouterr()
     assert recorded == [False, True, True, True]
+
+
+def test_fail_fast_settle_s_zero_stops_on_first_snapshot() -> None:
+    """settle_s=0 or step timeout_s=0 stops on the first snapshot without waiting 3s and preserves session."""
+    snap = '- button "Submit" [ref=e1]\n- button "Cancel" [ref=e2]'
+    browsers: list[SequenceBrowser] = []
+
+    def make_browser(session=None, **kw: Any) -> SequenceBrowser:
+        b = SequenceBrowser([snap], session=session, **kw)
+        browsers.append(b)
+        return b
+
+    runner = PlanRunner(
+        browser_factory=make_browser,
+        decisions_factory=FailingDecisionsClient,
+        profile_factory=lambda: "/tmp/unused",
+        settle_s=3.0,
+        poll_s=0.05,
+    )
+
+    res_cli = runner.run_plan_file(
+        {"steps": [{"action": "click", "target": "Missing"}]},
+        session="s-ff-cli",
+        settle_s=0.0,
+    )
+    assert res_cli["ok"] is False
+    assert res_cli["session_open"] is True
+    assert res_cli["stopped_at_step"] == 1
+    assert "Submit" in res_cli["stopped_snapshot"]
+    assert browsers[-1]._idx == 1
+
+    res_step = runner.run_plan_file(
+        {"settle_s": 5.0, "steps": [{"action": "click", "target": "Missing", "timeout_s": 0}]},
+        session="s-ff-step",
+    )
+    assert res_step["ok"] is False
+    assert res_step["session_open"] is True
+    assert browsers[-1]._idx == 1
+
+
+def test_cli_settle_s_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """CLI forwards --settle-s (including 0) to run_plan_file and rejects negative values."""
+    from agent_browser_decisions import cli
+
+    plan_path = tmp_path / "p.json"
+    plan_path.write_text('{"steps": [{"action": "click", "target": "Go"}]}', encoding="utf-8")
+    recorded: list[float | None] = []
+
+    def fake_run_plan_file(plan: Any, **kwargs: Any) -> dict[str, Any]:
+        recorded.append(kwargs.get("settle_s"))
+        return {"ok": True, "session": "s", "session_open": False, "verified": None, "steps": []}
+
+    monkeypatch.setattr(cli, "run_plan_file", fake_run_plan_file)
+    monkeypatch.setattr(cli, "load_dotenv_files", lambda _=None: None)
+
+    assert cli.main(["run", str(plan_path)]) == 0
+    assert cli.main(["run", str(plan_path), "--settle-s", "0"]) == 0
+    assert cli.main(["run", str(plan_path), "--settle-s", "0.5"]) == 0
+    capsys.readouterr()
+    assert recorded == [None, 0.0, 0.5]
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["run", str(plan_path), "--settle-s", "-1"])
+    assert exc.value.code == 2
