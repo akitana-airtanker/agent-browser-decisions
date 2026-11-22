@@ -37,17 +37,18 @@ uv run --project "$ABD" agent-browser-decisions doctor
 - `doctor` はエラー時だけ呼べばよい（正常時は不要）。`run` はブラウザ操作前に自動でスキーマ検証するため、通常実行前に別コマンドで `validate` を呼ぶ必要はない。
 - 事前確認で開いたセッション `$S` は**閉じずに残し**、`--session "$S" --no-open --close` でそのまま `run` する（Chrome の再起動とページ再読込を省き、成功時は自動で閉じ、失敗時だけ開いたまま残る）。
 - **フォームのすべての入力値・選択対象（テキスト欄だけでなくラジオ・チェックボックスのラベルも含む）をトップレベル `vars` と `{{KEY}}` に出し、`verify` も `VARS.*` で汎用的に照合**して保存する（これにより2回目にどの項目が変わっても JSON を書き直さず `--var KEY=VALUE` の1行だけで再実行できる）。
-- `--session "$S" --no-open --close` の結果で `ok: true`・`verified: true`・`session_open: false` が返っていれば、全項目の反映確認とセッション終了まで完了済み。追加の `snapshot`・`eval`・`session list` は不要。
+- `--session "$S" --no-open --close` の結果で `ok: true`・`verified: true`・`session_open: false` が返っていれば、全項目の反映確認と `close` 呼び出しまで完了済み（厳密な終了確認や一時プロファイル削除が要る場面では `agent-browser session list` で対象セッションが消えたことを確認する）。
 
 ```bash
 URL="https://httpbin.org/forms/post"
-S="abd-$$"
+S="probe-$$"
 
 # 1. 事前確認: ラベルと role を読む（セッション $S は閉じずにそのまま残す）
 agent-browser --session "$S" open "$URL" && agent-browser --session "$S" snapshot -i
 
 # 2. 手順書を書き、開いている $S 上で --no-open --close で即実行（成功時のみ自動クローズ）
-cat > /tmp/plan.json <<'EOF'
+TMPDIR_PLAN="$(mktemp -d /tmp/plan.XXXXXX)"
+cat > "$TMPDIR_PLAN/plan.json" <<'EOF'
 {
   "url": "https://httpbin.org/forms/post",
   "reset": true,
@@ -59,7 +60,7 @@ cat > /tmp/plan.json <<'EOF'
   "verify": "document.querySelector('input[name=custname]').value === VARS.name"
 }
 EOF
-agent-browser-decisions run /tmp/plan.json --session "$S" --no-open --close
+agent-browser-decisions run "$TMPDIR_PLAN/plan.json" --session "$S" --no-open --close
 
 # 3. 2回目以降（値だけ変更）: JSON を書き直さず --var だけで1コマンド実行（reset: true で自動起動・終了）
 agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="Large"
@@ -78,9 +79,9 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
   4. 再利用しない1回限りの作業だけ `/tmp/plan.json` を使う。
 - **実行前の探索と信頼境界**:
   - 自動探索の対象は **個人用ディレクトリ（`~/.local/share/agent-browser-decisions/plans/`）または利用者が明示したパス** に限る。
-  - リポジトリ内 `plans/`（`.agent-browser/plans/`）は信頼できる自前・チーム管理リポジトリに限り、**`verify`（ページ内で任意 JS を評価）と `steps` を確認したうえで実行**する。外部から clone しただけの未信頼リポジトリの `plans/` は自動探索・自動実行しない（ログイン済み永続プロファイル併用時は厳禁）。
+  - リポジトリ内 `plans/`（`.agent-browser/plans/`）は信頼できる自前・チーム管理リポジトリに限り、**`verify`（ページ内で任意 JS を評価）と `steps` を確認したうえで実行**する。外部から clone しただけの未信頼リポジトリの `plans/` は自動探索・自動実行しない（ログイン済み永続プロファイル併用時は、初回作成した手順書を含め `steps` と `verify` を実行前に利用者へ提示して承認を得る）。
   - 対象 URL・`goal` に該当する候補が複数あるときは勝手に1つを選ばず、一覧を示して利用者に確認する。
-- **復旧後の更新確認**: 既存手順書が UI ラベル変化等で止まったら、`stopped_snapshot` から最小修正を入れ、停止時の `url` を `--expect-url` に添えて `--session <session> --from-step <stopped_at_step> --expect-url "<url>" --close` で再開する。完走（`ok: true`・`verified: true`）後、**リポジトリ共有の `plans/` への書き戻しは必ず差分を提示して利用者確認を得てから上書き**する（個人用保存先でも変更点を報告して更新する）。
+- **復旧と更新確認（再開3原則）**: 既存手順書が UI ラベル変化等で止まったら、停止時の `url` を機械的に `--expect-url` へ流用せず、**元の手順書や利用者が想定する URL プレフィックス**を指定して再開する（誤遷移の追認を防ぐ）。再開前に `steps[]` と `stopped_snapshot`（必要なら読み戻し）で停止手（バッチ区間だった場合は後続手も含む）の反映状態を確認し、**未反映なら `stopped_at_step`、すでに反映済みなら `stopped_at_step + 1` から再開する。副作用の有無が判別できない場合は自動で再試行せず、利用者へ報告して判断を仰ぐ**。ログイン済み画面や副作用を伴う操作では、手順書の差分と再開番号（`--from-step N`）を**再開前に利用者へ提示して確認**してから `--session <session> --from-step <N> --expect-url "<intended-url>" --close` を実行する。完走（`ok: true`・`verified: true`）後、**リポジトリ共有の `plans/` への書き戻しは必ず差分を提示して利用者確認を得てから上書き**する（個人用保存先でも変更点を報告して更新する）。
 - **保存時の衛生ルール**: パスワード・トークン・機密の個人情報は保存手順書に平文で書かず `value_env` にする。可変値は `vars` / `{{KEY}}` / `VARS.*` に切り出して再利用できる形で残す。
 
 ## Plan schema
@@ -88,13 +89,13 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 `validate` は未定義キー・型誤り・不正な組み合わせを実行前に `rc 2` で弾く（JSON Schema は `schema/plan.schema.json`）。
 
 - トップレベル:
-  - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `vars`（`string -> string` の既定変数マップ。`url`/`goal`/`target`/`value`/`describe` の `{{KEY}}` を展開し、`verify` 内で `VARS.KEY` として参照可。CLI の `--var KEY=VALUE` で上書き）, `verify`（JS 式文字列）, `reset`（boolean）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）, `$schema`（任意）
+  - `steps`（必須・非空配列）, `url`（`reset: true` では必須）, `goal`, `vars`（`string -> string` の既定変数マップ。`url`/`goal`/`target`/`value`/`describe` の `{{KEY}}` を展開し、`verify` 内で `VARS.KEY` として参照可。CLI の `--var KEY=VALUE` で上書き）, `verify`（JS 式文字列）, `reset`（boolean）, `settle_s`（0 以上の数値）, `verify_timeout_s`（0 以上の有限数値、既定 `10`）, `$schema`（任意）
 - 各手順:
   - `action`（必須: `click` | `fill` | `select` | `check` | `press` | `upload`）
   - `target`（`press` 以外は必須、`press` では指定不可）
   - `value`（`fill` / `select` / `press` / `upload` で必須。`upload` はローカルファイルパス。`fill` のみ `value_env` で代替可。`click` / `check` では指定不可）
   - `value_env`（`fill` 専用。実行時に環境変数から値を読む。未設定ならブラウザ起動前に `rc 2` で失敗）
-  - `secret`（`fill` 専用 boolean。`true` でエラー出力から値を `[REDACTED]` に伏せる。`value_env` 使用時は既定 `true`）
+  - `secret`（`fill` 専用 boolean。`true` でエラー出力・`stopped_snapshot`・`verify_value`・`url`・`steps[].chose`・Tier 2 候補ペイロードから既知文字列を `[REDACTED]` に伏せる。`value_env` 使用時は既定 `true`）
   - `role`（任意・`action` と互換な ARIA role のみ、`press` では不可）
   - `nth`（1 以上の整数。`decide: true` と併用不可）
   - `match`（`"exact"`（既定・省略可）/ `"prefix"`（末尾に動的状態が付くラベル向け）/ `"regex"`。`decide: true` と併用不可）
@@ -108,9 +109,9 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 
 ## Plan rules
 
-- **第2段階（Decisions API）は既定オフ**: `run` は既定で第1段階＋第3段階のみで動作し、環境変数に API キーがあっても外部 API へ URL・候補名を送らない。同名リンク等で第2段階を使いたいときだけ `--decisions`（または `--provider` / `--model` / `--mode decide`）を明示する。
+- **第2段階（Decisions API）は既定オフ・有効化前に利用者承認**: `run` は既定で第1段階＋第3段階のみで動作し、環境変数に API キーがあっても外部 API へ URL・候補名を送らない。有効化すると URL や非マスクの画面入力値が外部 API へ送信されるため、`--decisions` / `--provider` / `--model` / `--base-url` / `--mode decide` を付ける場合は**必ず事前に利用者の承認を得る**。
 - **機密値は `value_env` を使う**: パスワード・API キー・トークンは手順書 JSON に平文で書かず、`value_env` で環境変数から渡す。
-- **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く（既定は完全一致のみなので、別ラベルへの誤爆は起きない）。ARIA ラベル末尾に現在の選択値などが付く UI（例: `"Change ticket type. Round trip"`）だけ、意図的に `"match": "prefix"` を付ける。
+- **1手順 = 1操作**: `target` は `snapshot -i` で読んだ引用符内のラベルをそのまま書く（既定は正規化後の完全一致のみ。元の要素が消えて正規化後が同形になる別要素だけが残る画面を除き、別ラベルへは一致しない）。ARIA ラベル末尾に現在の選択値などが付く UI（例: `"Change ticket type. Round trip"`）だけ、意図的に `"match": "prefix"` を付ける。
 - **動的に開く部品は手前で止めて段階作成する**: カレンダーやモーダルなど開始画面に見えない部品がある場合は、推測で全手順を一発書きせず、開くクリックまでを書いて `--keep-open` で実行し、開いた画面の `snapshot -i` を確認してから後半を手順書へ追記して `--session <id> --from-step N --close` で仕上げる。静的画面や初回検証でラベル不一致を早く検知したいときは `--settle-s 0.5`（または `0`）で早めに諦めて引き継ぐ。`role` はスナップショットで確認済みの要素にだけ書く。
 - **順番と同一ラベル**: 「3番目の結果」のような順番指定は判断モデルに数えさせず `nth` を使う（例: `{"action": "click", "target": "^\\d+\\s*comments?$", "match": "regex", "nth": 3}`）。各商品の「Add to cart」のように項目名を含まない同一ラベルが並ぶとき、順番が固定なら `nth`、並び順が変わりうるなら `agent-browser` の直接操作に切り替える。既存手順書の再実行前も `nth` の位置と対象が一致しているか確かめる。
 - **遷移・副作用・`select`**:
@@ -130,7 +131,7 @@ agent-browser-decisions run /tmp/plan.json --var name="Hanako Sato" --var size="
 | `2` | スキーマ違反・オプション矛盾（`reset: true` + `--session` 等）・`value_env` 未設定 | `ok: false`, `problems: [...]`（ブラウザ未操作） |
 
 - **引き継ぎと反例駆動の手順書精密化（CEGAR ループ）**: 失敗時（`session_open: true`）は結果の `session` にブラウザが残っており、観測済みの場合は **`stopped_snapshot`**（停止時点の実スナップショット、機密値伏字済み）が JSON に同梱される。`stopped_at_step`・`stopped_snapshot`・`steps[]` をそのまま反例として読み、次のどちらかで続ける。
-  - 途中再開と手順書の更新（定型化したい場合）: まず `steps[]` と `stopped_snapshot` で `stopped_at_step` が画面に未反映かを確かめ、**すでに反映済みなら同じ番号を繰り返さず `stopped_at_step + 1` から再開する**。`--expect-url` には停止結果の `url` を機械的に流用せず（誤遷移を追認するため）、**元の手順書や利用者が想定する URL プレフィックス**を指定する。ログイン済み画面や副作用を伴う操作で手順書を修正・再開する場合は、差分と再開位置（`--from-step N`）を**再開前に利用者へ提示して確認**してから `agent-browser-decisions run <plan.json> --session <session> --from-step <N> --expect-url "<intended-url>" --close` を実行する（完走後の共有 `plans/` 上書きも差分確認のうえで行う）。なお `reset: true` の失敗後に別コマンドで閉じた場合、結果 JSON の `profile` パスが一時ディレクトリとして残るため不要なら `rm -rf` で掃除する。
+  - 途中再開と手順書の更新（定型化したい場合）: 上記「復旧と更新確認（再開3原則）」に従い、まず `steps[]` と `stopped_snapshot`（必要なら読み戻し）で停止手（バッチ区間だった場合は後続手も含む）の反映状態を確認し、**未反映なら `stopped_at_step`、すでに反映済みなら `stopped_at_step + 1` から再開する。副作用の有無が判別できない場合は自動で再試行せず利用者へ確認する**。`--expect-url` には停止結果の `url` を機械的に流用せず（誤遷移を追認するため）、**元の手順書や利用者が想定する URL プレフィックス**を指定する。ログイン済み画面や副作用を伴う操作で手順書を修正・再開する場合は、差分と再開位置（`--from-step N`）を**再開前に利用者へ提示して確認**してから `agent-browser-decisions run <plan.json> --session <session> --from-step <N> --expect-url "<intended-url>" --close` を実行する（完走後の共有 `plans/` 上書きも差分確認のうえで行う）。なお `reset: true` の失敗後または `--keep-open` 維持後に別コマンドで閉じた場合、結果 JSON の `profile` パスが一時ディレクトリとして残るため不要ならセッション終了後に `rm -rf` で掃除する。
   - 直接操作: 1〜2手の例外処理なら開いたままの `--session <session>` で直接 `click @eN` … → 終わったら `agent-browser --session <session> close`。
 - **ダイアログ・リンク・入力の注意点**:
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。

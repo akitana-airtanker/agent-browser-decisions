@@ -271,6 +271,8 @@ class PlanRunner:
 
             def moved() -> bool:
                 now = browser.current_url()
+                if not now:
+                    return False
                 return now != page["url"] if whole else document(now) != document(page["url"])
 
             if poll(moved, 1.5, 0.1):
@@ -423,7 +425,8 @@ class PlanRunner:
             if step.get("expect") == "navigation":
 
                 def moved() -> bool:
-                    return document(browser.current_url()) != document(page["url"])
+                    now = browser.current_url()
+                    return bool(now) and document(now) != document(page["url"])
 
                 changed = poll(moved, 1.5, 0.1)
                 outcome = "ok" if changed else "wrong_target"
@@ -839,9 +842,11 @@ class PlanRunner:
             should_close_on_ok = (owns_session and not keep_open) or close_on_success
             should_close_on_interrupt = owns_session or close_on_success
             if ((ok and should_close_on_ok) or (interrupted and should_close_on_interrupt)) and session_opened:
-                with contextlib.suppress(RuntimeError, subprocess.TimeoutExpired, OSError):
-                    browser.close()
-                closed = True
+                try:
+                    close_res = browser.close()
+                    closed = close_res is not False
+                except (RuntimeError, subprocess.TimeoutExpired, OSError):
+                    closed = False
             session_open = session_opened and not closed
             if not ok and session_open and not interrupted and not expect_url_failed and snapshot_tracker.stale:
                 with contextlib.suppress(RuntimeError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):

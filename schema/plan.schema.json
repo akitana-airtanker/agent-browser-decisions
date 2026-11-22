@@ -630,6 +630,9 @@
             },
             "retry": {
               "type": "boolean"
+            },
+            "expect": {
+              "const": "navigation"
             }
           },
           "allOf": [

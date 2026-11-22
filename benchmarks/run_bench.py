@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import statistics
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,8 @@ def run_abd(plan_path: Path, extra_args: list[str] | None = None) -> dict:
     data = json.loads(r.stdout) if r.stdout.strip() else {}
     if not extra_args and data.get("session_open") and data.get("session"):
         subprocess.run(["agent-browser", "--session", data["session"], "close"], capture_output=True, check=False)
+        if data.get("profile"):
+            shutil.rmtree(data["profile"], ignore_errors=True)
     return {
         "ok": r.returncode == 0 and data.get("ok") is True and data.get("verified") is True,
         "wall_s": round(dt, 3),
@@ -80,6 +83,7 @@ def run_abd(plan_path: Path, extra_args: list[str] | None = None) -> dict:
         "stopped_at_step": data.get("stopped_at_step"),
         "session": data.get("session"),
         "session_open": data.get("session_open"),
+        "profile": data.get("profile"),
         "stopped_snapshot_lines": len(data["stopped_snapshot"].splitlines()) if data.get("stopped_snapshot") else 0,
         "error": data.get("error") or (r.stderr.strip()[:200] if r.returncode != 0 else None),
     }
@@ -246,6 +250,9 @@ def run_reuse_suite(rounds: int) -> dict:
     finally:
         if sid:
             subprocess.run(["agent-browser", "--session", sid, "close"], capture_output=True, check=False)
+        prof = locals().get("seed", {}).get("profile") or locals().get("stop_res", {}).get("profile")
+        if prof:
+            shutil.rmtree(prof, ignore_errors=True)
 
     for i in range(rounds):
         sess = f"bench-noopen-{os.getpid()}-{i}"
@@ -297,6 +304,9 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
     finally:
         if sid:
             subprocess.run(["agent-browser", "--session", sid, "close"], capture_output=True, check=False)
+        prof = locals().get("seed", {}).get("profile") or locals().get("stop_res", {}).get("profile")
+        if prof:
+            shutil.rmtree(prof, ignore_errors=True)
 
     stop_res2 = run_abd(hb_plan, ["--var", "size=Extra Large"])
     sid2 = stop_res2.get("session")
@@ -315,6 +325,8 @@ def run_drift_suite(chrome_bin: str, py_exe: str) -> dict:
     finally:
         if sid2:
             subprocess.run(["agent-browser", "--session", sid2, "close"], capture_output=True, check=False)
+        if stop_res2.get("profile"):
+            shutil.rmtree(stop_res2["profile"], ignore_errors=True)
 
     out = {
         "playwright_default_timeout3s": pw_res,
@@ -381,6 +393,8 @@ def run_flights_resume_suite(rounds: int) -> dict:
                                 capture_output=True,
                                 check=False,
                             )
+                        if stop_res.get("profile"):
+                            shutil.rmtree(stop_res["profile"], ignore_errors=True)
                 else:
                     res = run_abd(fixed_path)
                     results["flights_restart_step1"].append(res)
@@ -412,6 +426,16 @@ def main() -> None:
     if args.suite in ("flights_resume", "all"):
         out["flights_resume"] = run_flights_resume_suite(args.rounds)
 
+    def _strip_profiles(obj: object) -> None:
+        if isinstance(obj, dict):
+            obj.pop("profile", None)
+            for v in obj.values():
+                _strip_profiles(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                _strip_profiles(v)
+
+    _strip_profiles(out)
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"\nSaved results to {args.out}")
 

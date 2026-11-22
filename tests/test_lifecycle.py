@@ -1802,3 +1802,86 @@ def test_temp_profile_path_exposed_when_session_stays_open_and_omitted_when_clea
     assert res_ok["session_open"] is False
     assert "profile" not in res_ok
     assert not Path(created[1]).exists()
+
+
+def test_navigation_does_not_pass_when_current_url_returns_empty() -> None:
+    """Empty URL from a failed `get url` call must not satisfy navigation checks."""
+
+    class FailingUrlBrowser(FakeBrowser):
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raw = '- link "Next" [ref=e1]\n- button "Submit" [ref=e2]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+        def current_url(self) -> str:
+            return ""
+
+        def call(self, *args: str, check: bool = True, category: str = "browser") -> str:
+            return ""
+
+    runner = PlanRunner(
+        browser_factory=FailingUrlBrowser,
+        decisions_factory=DecisionsClient,
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res_link = runner.run_plan_file(
+        {"url": "https://example.test/start", "steps": [{"action": "click", "target": "Next"}]}
+    )
+    assert res_link["ok"] is False
+    assert res_link["steps"][0]["effect"] == "wrong_target"
+
+    res_press = runner.run_plan_file(
+        {
+            "url": "https://example.test/start",
+            "steps": [{"action": "press", "value": "Enter", "expect": "navigation"}],
+        }
+    )
+    assert res_press["ok"] is False
+    assert res_press["steps"][0]["effect"] == "wrong_target"
+
+
+def test_close_failure_keeps_session_open_and_preserves_temp_profile(tmp_path: Path) -> None:
+    """If browser.close() fails, keep session_open=True and do not delete the temp profile."""
+    prof_dir = tmp_path / "abd-prof-keep"
+    prof_dir.mkdir()
+
+    class CloseFailBrowser(FakeBrowser):
+        def observe(self, category: str = "observe") -> dict[str, Any]:
+            raw = '- textbox "Name" [ref=e1]'
+            return {"url": self.url, "raw": raw, "elements": parse_snapshot(raw)}
+
+        def field_value(self, ref: str, *, category: str = "verify") -> str:
+            return '{"value": "ok"}'
+
+        def close(self) -> bool:
+            return False
+
+    runner = PlanRunner(
+        browser_factory=CloseFailBrowser,
+        decisions_factory=DecisionsClient,
+        profile_factory=lambda: str(prof_dir),
+        settle_s=0.0,
+        poll_s=0.005,
+    )
+    res = runner.run_plan_file(
+        {
+            "url": "https://example.test/form",
+            "reset": True,
+            "steps": [{"action": "fill", "target": "Name", "value": "ok"}],
+        }
+    )
+    assert res["ok"] is True
+    assert res["session_open"] is True
+    assert res.get("profile") == str(prof_dir)
+    assert prof_dir.exists()
+
+
+def test_upload_expect_navigation_present_in_json_schema() -> None:
+    schema_path = Path(__file__).resolve().parents[1] / "schema" / "plan.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    upload_props = next(
+        v["properties"]
+        for v in schema["$defs"]["step"]["oneOf"]
+        if v.get("properties", {}).get("action", {}).get("const") == "upload"
+    )
+    assert upload_props.get("expect") == {"const": "navigation"}

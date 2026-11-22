@@ -106,7 +106,10 @@ class AgentBrowser:
             self.call("open", url)
 
     def current_url(self) -> str:
-        return self.call("get", "url", check=False, category="check").strip()
+        try:
+            return self.call("get", "url", check=True, category="check").strip()
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            return ""
 
     def batch(self, commands: list[list[str]], *, bail: bool = True, category: str = "act") -> list[dict[str, Any]]:
         started = time.perf_counter()
@@ -142,5 +145,9 @@ class AgentBrowser:
             raise RuntimeError(f"unexpected batch payload type: {type(parsed).__name__}")
         return parsed
 
-    def close(self) -> None:
-        self.call("close", check=False)
+    def close(self) -> bool:
+        try:
+            self.call("close", check=True)
+            return True
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            return False
