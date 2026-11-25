@@ -1,16 +1,21 @@
 """Run written browser plans with deterministic label matching and bounded decision model fallback."""
 
 from agent_browser_decisions.core import (
+    MIN_DECISION_PROBABILITY,
     NONE_CHOICE,
     PROVIDERS,
     ROLES,
     VALID_MATCH_MODES,
     DecisionConfig,
     ProviderSpec,
+    apply_plan_heals,
+    check_decision_choice,
+    chosen_probability,
     chosen_ref,
     collect_redaction_secrets,
     decision_request,
     evaluate_verify_output,
+    format_step_summary,
     match_label,
     normalize,
     parse_dotenv,
@@ -20,6 +25,7 @@ from agent_browser_decisions.core import (
     resolve_decision_config,
     resolve_step_settle_s,
     resolve_step_values,
+    should_enable_decisions,
     should_retry_step,
     url_matches_expected,
     validate_expect_url,
@@ -31,6 +37,7 @@ from agent_browser_decisions.runner import PlanRunner, run_plan_file
 __version__ = "0.9.10"
 
 __all__ = [
+    "MIN_DECISION_PROBABILITY",
     "NONE_CHOICE",
     "PROVIDERS",
     "ROLES",
@@ -39,7 +46,12 @@ __all__ = [
     "PlanRunner",
     "ProviderSpec",
     "__version__",
+    "apply_plan_heals",
+    "check_decision_choice",
+    "chosen_probability",
     "chosen_ref",
+    "format_step_summary",
+    "should_enable_decisions",
     "collect_redaction_secrets",
     "decision_request",
     "evaluate_verify_output",

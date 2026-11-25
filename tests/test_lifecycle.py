@@ -739,7 +739,7 @@ def test_decisions_client_supports_gemini_typesafe_liquid_and_custom_endpoint() 
 
     assert seen[3][0] == "https://api.liquid.ai/decisions/v1/systemone"
     assert seen[3][1] == "Bearer liq-secret-key"
-    assert seen[3][2]["model"] == "d1.2"
+    assert seen[3][2]["model"] == "d1.2-ultra"
 
     assert seen[4][0] == "https://openrouter.ai/api/alpha/decisions"
     assert seen[4][1] == "Bearer or-secret-key"
@@ -1071,8 +1071,8 @@ def test_cli_and_runner_do_not_eagerly_import_httpx() -> None:
     assert res.returncode == 0, res.stderr
 
 
-def test_tier2_disabled_by_default_even_when_api_key_in_env() -> None:
-    """Default runs never call Tier 2 Decisions API even if API keys exist in environ."""
+def test_tier2_auto_enabled_with_key_and_disabled_with_no_decisions() -> None:
+    """Default runs auto-skip Tier 2 without keys, auto-enable with keys, and honor allow_decisions=False."""
     ambiguous_snap = '- button "Save" [ref=e1]\n- button "Save" [ref=e2]\n- button "Delete" [ref=e3]'
     decisions_clients: list[FailingDecisionsClient] = []
 
@@ -1088,49 +1088,93 @@ def test_tier2_disabled_by_default_even_when_api_key_in_env() -> None:
         poll_s=0.005,
         effect_wait_s=0.02,
     )
-    env = {"OPENAI_API_KEY": "sk-ambient-key", "OPENROUTER_API_KEY": "sk-or-ambient"}
+    env_with_key = {"OPENAI_API_KEY": "sk-ambient-key", "OPENROUTER_API_KEY": "sk-or-ambient"}
 
-    # Case 1: label miss with multiple candidates -> Tier 3 handoff, 0 Tier 2 calls
-    res_miss = runner.run_plan_file(
+    # Case 1: no API key in environ -> graceful Tier 3 handoff, 0 Tier 2 calls
+    res_nokey = runner.run_plan_file(
         {"steps": [{"action": "click", "target": "Close", "role": "button"}]},
-        session="s-miss",
-        environ=env,
+        session="s-nokey",
+        environ={},
     )
-    assert res_miss["ok"] is False
-    assert res_miss["session_open"] is True
-    assert res_miss["stopped_at_step"] == 1
-    assert "stopped_snapshot" in res_miss
-    assert res_miss["steps"][0]["tier"] == 3
-    assert "--decisions" in res_miss["steps"][0]["reason"]
+    assert res_nokey["ok"] is False
+    assert res_nokey["session_open"] is True
+    assert res_nokey["stopped_at_step"] == 1
+    assert "stopped_snapshot" in res_nokey
+    assert res_nokey["steps"][0]["tier"] == 3
+    assert "no decision API key" in res_nokey["steps"][0]["reason"]
     assert all(d.calls == 0 for d in decisions_clients)
 
-    # Case 2: ambiguous label match -> Tier 3 handoff, 0 Tier 2 calls
-    res_amb = runner.run_plan_file(
+    # Case 2: API key present, but allow_decisions=False (--no-decisions) -> 0 Tier 2 calls
+    res_disabled = runner.run_plan_file(
         {"steps": [{"action": "click", "target": "Save", "role": "button"}]},
-        session="s-amb",
-        environ=env,
+        session="s-disabled",
+        allow_decisions=False,
+        environ=env_with_key,
     )
-    assert res_amb["ok"] is False
-    assert res_amb["steps"][0]["tier"] == 3
-    assert "ambiguous" in res_amb["steps"][0]["reason"]
+    assert res_disabled["ok"] is False
+    assert res_disabled["steps"][0]["tier"] == 3
+    assert "--no-decisions" in res_disabled["steps"][0]["reason"]
     assert all(d.calls == 0 for d in decisions_clients)
 
-    # Case 3: step with decide: True in plan JSON -> blocked unless explicitly opted in
+    # Case 3: step with decide: True blocked by allow_decisions=False even with API key
     res_step_decide = runner.run_plan_file(
         {"steps": [{"action": "click", "target": "Save", "role": "button", "decide": True}]},
         session="s-step",
-        environ=env,
+        allow_decisions=False,
+        environ=env_with_key,
     )
     assert res_step_decide["ok"] is False
     assert res_step_decide["steps"][0]["tier"] == 3
-    assert "--decisions" in res_step_decide["steps"][0]["reason"]
+    assert "--no-decisions" in res_step_decide["steps"][0]["reason"]
     assert all(d.calls == 0 for d in decisions_clients)
+
+    # Case 4: API key present & default allow_decisions=None -> Tier 2 runs automatically
+    sent: list[dict[str, Any]] = []
+
+    def ok_handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "answers": {
+                    "element": {
+                        "type": "choice",
+                        "choice": "e2",
+                        "confidence": 0.91,
+                        "probabilities": {"e1": 0.04, "e2": 0.92, "__none__": 0.04},
+                    }
+                },
+                "usage": {"input_tokens": 90},
+            },
+        )
+
+    runner_auto = PlanRunner(
+        browser_factory=lambda session=None, **kw: SequenceBrowser(
+            ['- button "Cancel" [ref=e1]\n- button "Done" [ref=e2]'], session=session, **kw
+        ),
+        decisions_factory=lambda **kw: DecisionsClient(
+            client=httpx.Client(transport=httpx.MockTransport(ok_handler)),
+            **kw,
+        ),
+        settle_s=0.05,
+        poll_s=0.005,
+        effect_wait_s=0.02,
+    )
+    res_auto = runner_auto.run_plan_file(
+        {"goal": "Close date picker", "steps": [{"action": "click", "target": "Close"}]},
+        environ={"OPENROUTER_API_KEY": "sk-or-test"},
+    )
+    assert res_auto["ok"] is True
+    assert res_auto["steps"][0]["tier"] == 2
+    assert res_auto["steps"][0]["probability"] == 0.92
+    assert sent[0]["model"] == "liquid/d1.2-ultra"
+    assert "Current step:" in sent[0]["state"]
 
 
 def test_cli_decisions_opt_in_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """CLI defaults to allow_decisions=False and enables it when --decisions or --provider is passed."""
+    """CLI defaults to allow_decisions=None (auto), honors --decisions and --no-decisions."""
     from agent_browser_decisions import cli
 
     plan_path = tmp_path / "p.json"
@@ -1146,10 +1190,11 @@ def test_cli_decisions_opt_in_flag(
 
     assert cli.main(["run", str(plan_path)]) == 0
     assert cli.main(["run", str(plan_path), "--decisions"]) == 0
+    assert cli.main(["run", str(plan_path), "--no-decisions"]) == 0
     assert cli.main(["run", str(plan_path), "--provider", "openrouter"]) == 0
     assert cli.main(["run", str(plan_path), "--mode", "decide"]) == 0
     capsys.readouterr()
-    assert recorded == [False, True, True, True]
+    assert recorded == [None, True, False, True, True]
 
 
 def test_fail_fast_settle_s_zero_stops_on_first_snapshot() -> None:
@@ -1174,6 +1219,7 @@ def test_fail_fast_settle_s_zero_stops_on_first_snapshot() -> None:
         {"steps": [{"action": "click", "target": "Missing"}]},
         session="s-ff-cli",
         settle_s=0.0,
+        environ={},
     )
     assert res_cli["ok"] is False
     assert res_cli["session_open"] is True
@@ -1184,6 +1230,7 @@ def test_fail_fast_settle_s_zero_stops_on_first_snapshot() -> None:
     res_step = runner.run_plan_file(
         {"settle_s": 5.0, "steps": [{"action": "click", "target": "Missing", "timeout_s": 0}]},
         session="s-ff-step",
+        environ={},
     )
     assert res_step["ok"] is False
     assert res_step["session_open"] is True
@@ -1233,14 +1280,18 @@ def test_default_exact_match_stops_instead_of_clicking_prefix_button() -> None:
         poll_s=0.005,
         effect_wait_s=0.02,
     )
-    res_exact = runner.run_plan_file({"url": "https://example.test", "steps": [{"action": "click", "target": "Save"}]})
+    res_exact = runner.run_plan_file(
+        {"url": "https://example.test", "steps": [{"action": "click", "target": "Save"}]},
+        environ={},
+    )
     assert res_exact["ok"] is False
     assert res_exact["stopped_at_step"] == 1
     assert res_exact["session_open"] is True
     assert browsers[0].act_calls == []
 
     res_prefix = runner.run_plan_file(
-        {"url": "https://example.test", "steps": [{"action": "click", "target": "Save", "match": "prefix"}]}
+        {"url": "https://example.test", "steps": [{"action": "click", "target": "Save", "match": "prefix"}]},
+        environ={},
     )
     assert res_prefix["ok"] is True
     assert browsers[1].act_calls == [("click", "@e9")]
@@ -2171,3 +2222,189 @@ def test_runner_preserves_profile_field_when_rmtree_fails(tmp_path: Path, monkey
     assert res["session_open"] is False
     assert res.get("profile") == str(prof_dir)
     assert prof_dir.exists()
+
+
+def test_tier2_guards_block_low_probability_destructive_and_indistinguishable_siblings() -> None:
+    """Tier 2 rejects <0.50 probability, unrequested publish/destructive clicks, and identical siblings."""
+
+    def make_runner(snap: str, payload: dict[str, Any]) -> tuple[PlanRunner, list[SequenceBrowser]]:
+        browsers: list[SequenceBrowser] = []
+
+        def make_b(session: str | None = None, **kw: Any) -> SequenceBrowser:
+            b = SequenceBrowser([snap], session=session, **kw)
+            browsers.append(b)
+            return b
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        runner = PlanRunner(
+            browser_factory=make_b,
+            decisions_factory=lambda **kw: DecisionsClient(
+                client=httpx.Client(transport=httpx.MockTransport(handler)),
+                **kw,
+            ),
+            settle_s=0.0,
+            poll_s=0.005,
+            effect_wait_s=0.02,
+        )
+        return runner, browsers
+
+    # 1) Low majority probability (< 0.50) rejected even on benign label
+    r1, b1 = make_runner(
+        '- button "Continue" [ref=e1]\n- button "Back" [ref=e2]',
+        {
+            "answers": {
+                "element": {
+                    "type": "choice",
+                    "choice": "e1",
+                    "confidence": 0.30,
+                    "probabilities": {"e1": 0.39, "e2": 0.31, "__none__": 0.30},
+                }
+            }
+        },
+    )
+    res1 = r1.run_plan_file(
+        {"steps": [{"action": "click", "target": "Next"}]},
+        environ={"OPENROUTER_API_KEY": "sk-or-test"},
+    )
+    assert res1["ok"] is False
+    assert "low_probability" in res1["steps"][0]["reason"]
+    assert b1[0].act_calls == []
+
+    # 2) Unrequested publish/destructive click blocked even with high probability
+    r2, b2 = make_runner(
+        '- button "Save & publish" [ref=e1]\n- button "Cancel" [ref=e2]',
+        {
+            "answers": {
+                "element": {
+                    "type": "choice",
+                    "choice": "e1",
+                    "confidence": 0.95,
+                    "probabilities": {"e1": 0.96, "e2": 0.02, "__none__": 0.02},
+                }
+            }
+        },
+    )
+    res2 = r2.run_plan_file(
+        {"goal": "Save draft", "steps": [{"action": "click", "target": "Save"}]},
+        environ={"OPENROUTER_API_KEY": "sk-or-test"},
+    )
+    assert res2["ok"] is False
+    assert "guard:intent_mismatch" in res2["steps"][0]["reason"]
+    assert b2[0].act_calls == []
+
+    # 3) Indistinguishable siblings blocked even if model is overconfident
+    r3, b3 = make_runner(
+        '- button "Add to cart" [ref=e1]\n- button "Add to cart" [ref=e2]\n- button "Add to cart" [ref=e3]',
+        {
+            "answers": {
+                "element": {
+                    "type": "choice",
+                    "choice": "e1",
+                    "confidence": 0.85,
+                    "probabilities": {"e1": 0.87, "e2": 0.05, "e3": 0.05, "__none__": 0.03},
+                }
+            }
+        },
+    )
+    res3 = r3.run_plan_file(
+        {"goal": "Add Sauce Labs Backpack to cart", "steps": [{"action": "click", "target": "Add to cart"}]},
+        environ={"OPENROUTER_API_KEY": "sk-or-test"},
+    )
+    assert res3["ok"] is False
+    assert "guard:indistinguishable_siblings" in res3["steps"][0]["reason"]
+    assert b3[0].act_calls == []
+
+
+def test_static_screen_miss_falls_back_to_tier2_before_full_settle_s() -> None:
+    """When DOM is stable on a drifted label, Tier 2 triggers after miss_settle_s instead of waiting full settle_s."""
+    snap = '- button "Continue" [ref=e1]\n- button "Back" [ref=e2]'
+    browsers: list[SequenceBrowser] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "answers": {
+                    "element": {
+                        "type": "choice",
+                        "choice": "e1",
+                        "confidence": 0.92,
+                        "probabilities": {"e1": 0.94, "e2": 0.03, "__none__": 0.03},
+                    }
+                }
+            },
+        )
+
+    def make_b(session: str | None = None, **kw: Any) -> SequenceBrowser:
+        b = SequenceBrowser([snap], session=session, **kw)
+        browsers.append(b)
+        return b
+
+    runner = PlanRunner(
+        browser_factory=make_b,
+        decisions_factory=lambda **kw: DecisionsClient(
+            client=httpx.Client(transport=httpx.MockTransport(handler)),
+            **kw,
+        ),
+        settle_s=2.0,
+        miss_settle_s=0.05,
+        poll_s=0.01,
+        effect_wait_s=0.02,
+    )
+    res = runner.run_plan_file(
+        {"steps": [{"action": "click", "target": "Next"}]},
+        environ={"OPENROUTER_API_KEY": "sk-or-test"},
+    )
+    assert res["ok"] is True
+    assert res["steps"][0]["tier"] == 2
+    assert res["elapsed_ms"] < 800
+
+
+def test_cli_heal_writes_back_only_when_verify_passes_and_preserves_vars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--heal atomically updates drifted exact targets only when verify passes, preserving {{vars}}."""
+    from agent_browser_decisions import cli
+
+    plan_data = {
+        "url": "https://example.test",
+        "vars": {"name": "Ada"},
+        "steps": [
+            {"action": "fill", "target": "Full name", "value": "{{name}}"},
+            {"action": "click", "target": "Proceed"},
+        ],
+        "verify": "true",
+    }
+    plan_path = tmp_path / "wizard.json"
+    plan_path.write_text(json.dumps(plan_data, indent=2), encoding="utf-8")
+
+    # 1) Verified run with healed steps -> writes back plan JSON while keeping {{name}}
+    def fake_run_verified(plan: Any, **kwargs: Any) -> dict[str, Any]:
+        assert kwargs.get("heal") is True
+        return {
+            "ok": True,
+            "session": "s",
+            "session_open": False,
+            "verified": True,
+            "steps": [],
+            "healed": [{"step": 1, "from": "Full name", "to": "Display name:"}],
+        }
+
+    monkeypatch.setattr(cli, "run_plan_file", fake_run_verified)
+    monkeypatch.setattr(cli, "load_dotenv_files", lambda _=None: None)
+    assert cli.main(["run", str(plan_path), "--heal"]) == 0
+    capsys.readouterr()
+
+    updated = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert updated["steps"][0]["target"] == "Display name:"
+    assert updated["steps"][0]["value"] == "{{name}}"
+    assert updated["steps"][1]["target"] == "Proceed"
+
+    # 2) --heal with stdin '-' returns exit code 2
+    monkeypatch.setattr(cli.sys, "stdin", __import__("io").StringIO(json.dumps(plan_data)))
+    assert cli.main(["run", "-", "--heal"]) == 2
+    err_out = json.loads(capsys.readouterr().out)
+    assert err_out["ok"] is False
+    assert "--heal" in err_out["problems"][0]

@@ -981,3 +981,156 @@ def test_decision_request_redacts_secrets() -> None:
         dumped = json.dumps(req)
         assert "sk-secret-123" not in dumped
         assert "[REDACTED]" in dumped
+
+
+# ---------- Tier 2 auto-enable, context prompt, guards, and plan healing ----------
+
+
+@given(
+    st.sampled_from([None, True, False]),
+    st.sampled_from(["label", "decide"]),
+    st.sampled_from([None, "openrouter"]),
+    st.sampled_from([None, "liquid/d1.2-ultra"]),
+    st.sampled_from([{}, {"OPENROUTER_API_KEY": "sk-or-test"}]),
+)
+def test_should_enable_decisions_precedence(
+    allow_decisions: bool | None,
+    mode: str,
+    provider: str | None,
+    model: str | None,
+    env: dict[str, str],
+) -> None:
+    from agent_browser_decisions.core import should_enable_decisions
+
+    got = should_enable_decisions(
+        allow_decisions=allow_decisions,
+        mode=mode,
+        provider=provider,
+        model=model,
+        environ=env,
+    )
+    if allow_decisions is False:
+        assert got is False
+    elif allow_decisions is True or mode == "decide" or provider or model:
+        assert got is True
+    else:
+        assert got is bool(env)
+
+
+def test_decision_request_includes_workflow_context_and_redacts_secrets() -> None:
+    from agent_browser_decisions.core import decision_request, format_step_summary
+
+    prev = [
+        format_step_summary(
+            {"action": "fill", "target": "Secret token", "value": "tok-secret-99"}, secrets={"tok-secret-99"}
+        )
+    ]
+    nxt = [format_step_summary({"action": "click", "target": "Search flights"})]
+    req = decision_request(
+        {"action": "click", "target": "Close"},
+        "Select departure date",
+        [
+            {"ref": "e6", "role": "button", "name": "Reset", "attrs": "", "value": "", "context": []},
+            {"ref": "e7", "role": "button", "name": "Done", "attrs": "", "value": "", "context": []},
+        ],
+        "https://www.google.com/travel/flights",
+        provider="openrouter",
+        secrets={"tok-secret-99"},
+        prev_steps=prev,
+        next_steps=nxt,
+    )
+    assert req["model"] == "liquid/d1.2-ultra"
+    assert "Previous steps:" in req["state"]
+    assert "Next steps:" in req["state"]
+    assert "tok-secret-99" not in json.dumps(req)
+    assert "NEVER pick an opposite, destructive, reset" in req["questions"]["element"]["instructions"]
+
+
+def test_check_decision_choice_guards_and_probability_calibration() -> None:
+    from agent_browser_decisions.core import check_decision_choice, chosen_probability
+
+    payload = {
+        "answers": {
+            "element": {
+                "type": "choice",
+                "choice": "e7",
+                "confidence": 0.54,
+                "probabilities": {"e7": 0.596, "e6": 0.002, "__none__": 0.390},
+            }
+        }
+    }
+    assert chosen_probability(payload, "e7") == 0.596
+    assert chosen_probability(payload, "missing") is None
+
+    # Benign synonym with majority probability passes
+    cands = [
+        {"ref": "e6", "role": "button", "name": "Reset", "context": []},
+        {"ref": "e7", "role": "button", "name": "Done", "context": []},
+    ]
+    assert check_decision_choice({"action": "click", "target": "Close"}, cands[1], cands, probability=0.596) is None
+    # Escalation to Reset blocked
+    assert "intent_mismatch" in (
+        check_decision_choice({"action": "click", "target": "Close"}, cands[0], cands, probability=0.95) or ""
+    )
+    # Same-category synonym ("Place order" -> "Submit order") allowed
+    order_cands = [{"ref": "e1", "role": "button", "name": "Submit order", "context": []}]
+    assert (
+        check_decision_choice(
+            {"action": "click", "target": "Place order"}, order_cands[0], order_cands, probability=0.88
+        )
+        is None
+    )
+    # Row-disambiguated duplicate labels allowed; flat identical siblings blocked
+    row_cands = [
+        {"ref": "e3", "role": "button", "name": "Edit", "context": ["row 'Core App'"]},
+        {"ref": "e7", "role": "button", "name": "Edit", "context": ["row 'Billing'"]},
+    ]
+    assert (
+        check_decision_choice({"action": "click", "target": "Edit"}, row_cands[1], row_cands, probability=0.99) is None
+    )
+    flat_cands = [
+        {"ref": "e3", "role": "button", "name": "Add to cart", "context": []},
+        {"ref": "e4", "role": "button", "name": "Add to cart", "context": []},
+    ]
+    assert "indistinguishable_siblings" in (
+        check_decision_choice({"action": "click", "target": "Add to cart"}, flat_cands[0], flat_cands, probability=0.87)
+        or ""
+    )
+
+
+def test_apply_plan_heals_invariants() -> None:
+    from agent_browser_decisions.core import apply_plan_heals
+
+    raw = {
+        "url": "https://example.test",
+        "vars": {"btn": "Go"},
+        "steps": [
+            {"action": "fill", "target": "Full name", "value": "{{name}}"},
+            {"action": "click", "target": "{{btn}}"},
+            {"action": "click", "target": "^Next", "match": "regex"},
+            {"action": "click", "target": "Save", "decide": True},
+            {"action": "click", "target": "Confirm"},
+        ],
+        "verify": "true",
+    }
+    healed, applied = apply_plan_heals(
+        raw,
+        [
+            {"step": 1, "to": "Display name:"},
+            {"step": 2, "to": "Submit"},
+            {"step": 3, "to": "Continue"},
+            {"step": 4, "to": "Update"},
+            {"step": 5, "to": "Token sk-secret"},
+        ],
+        secrets={"sk-secret"},
+    )
+    # Original plan is never mutated
+    assert raw["steps"][0]["target"] == "Full name"
+    # Only safe exact step 1 is healed; template, regex, decide=True, and secret-bearing targets are skipped
+    assert applied == [{"step": 1, "from": "Full name", "to": "Display name:"}]
+    assert healed["steps"][0]["target"] == "Display name:"
+    assert healed["steps"][0]["value"] == "{{name}}"
+    assert healed["steps"][1]["target"] == "{{btn}}"
+    assert healed["steps"][2]["target"] == "^Next"
+    assert healed["steps"][3]["target"] == "Save"
+    assert healed["steps"][4]["target"] == "Confirm"

@@ -43,6 +43,7 @@ VALID_MATCH_MODES: frozenset[str] = frozenset({"exact", "prefix", "regex"})
 DEFAULT_PROVIDER = "openai"
 DEFAULT_DECISION_MODEL = "gpt-6-luna"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+MIN_DECISION_PROBABILITY = 0.50
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +76,7 @@ class DecisionConfig:
     auth_prefix: str
 
 
-PROVIDER_ORDER: tuple[str, ...] = ("openai", "openrouter", "gemini", "typesafe", "liquid")
+PROVIDER_ORDER: tuple[str, ...] = ("openrouter", "liquid", "openai", "gemini", "typesafe")
 PROVIDERS: dict[str, ProviderSpec] = {
     "openai": ProviderSpec(
         name="openai",
@@ -91,7 +92,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "openrouter": ProviderSpec(
         name="openrouter",
         protocol="systemone",
-        default_model="liquid/d1.2",
+        default_model="liquid/d1.2-ultra",
         default_base_url="https://openrouter.ai/api/alpha",
         endpoint_path="/decisions",
         api_key_envs=("OPENROUTER_API_KEY",),
@@ -124,7 +125,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "liquid": ProviderSpec(
         name="liquid",
         protocol="systemone",
-        default_model="d1.2",
+        default_model="d1.2-ultra",
         default_base_url="https://api.liquid.ai/decisions/v1",
         endpoint_path="/systemone",
         api_key_envs=("LIQUID_API_KEY",),
@@ -395,6 +396,77 @@ def resolve_decision_config(
     )
 
 
+GUARD_INTENT_PATTERNS: dict[str, re.Pattern[str]] = {
+    "destructive": re.compile(
+        r"\b(?:delete|remove|destroy|erase|purge|terminate|revoke|deactivate|unsubscribe|close\s+account)\b"
+        r"|(?:削除|消去|退会|解約|無効化|配信停止|購読解除)",
+        re.IGNORECASE,
+    ),
+    "reset_cancel": re.compile(
+        r"\b(?:reset|clear\s+all|discard|abort|cancel)\b"
+        r"|(?:リセット|初期化|キャンセル|破棄|取り消し)",
+        re.IGNORECASE,
+    ),
+    "publish_commit": re.compile(
+        r"\b(?:publish|deploy|release|finalize|complete\s+order|place\s+order|submit\s+order|pay\s+now|pay|purchase|checkout|buy\s+now|charge)\b"
+        r"|(?:公開|確定して送信|本申請|注文を確定|購入|支払|決済)",
+        re.IGNORECASE,
+    ),
+    "send_external": re.compile(
+        r"\b(?:send\s+invite|send\s+email|broadcast|notify\s+all)\b"
+        r"|(?:招待を送信|一斉送信)",
+        re.IGNORECASE,
+    ),
+}
+
+POSITIONAL_HINT_RE = re.compile(
+    r"\b(?:first|second|third|fourth|fifth|last|1st|2nd|3rd|[4-9]th|top|bottom)\b"
+    r"|(?:最初|最後|[1-9１-９]番目)",
+    re.IGNORECASE,
+)
+
+
+def should_enable_decisions(
+    *,
+    allow_decisions: bool | None,
+    mode: str = "label",
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    """Resolve whether Tier 2 decisions should be enabled.
+
+    Precedence:
+    1. Explicit False (--no-decisions / allow_decisions=False) always disables Tier 2.
+    2. Explicit True (--decisions) or explicit provider/model/base_url/decide mode always enables Tier 2.
+    3. Default (allow_decisions=None): auto-enable when a decision provider API key is present in environ.
+    """
+    if allow_decisions is False:
+        return False
+    if allow_decisions is True or mode == "decide" or provider or model or base_url:
+        return True
+    try:
+        cfg = resolve_decision_config(environ=environ)
+    except ValueError:
+        return False
+    return bool(cfg.api_key)
+
+
+def format_step_summary(
+    step: Mapping[str, Any],
+    *,
+    secrets: set[str] | frozenset[str] = frozenset(),
+) -> str:
+    """Format a compact, value-free summary of a plan step for Tier 2 workflow context."""
+    action = str(step.get("action") or "act")
+    if action == "press":
+        val = redact_text(str(step.get("value") or ""), secrets)
+        return f'press "{val}"'
+    label = redact_text(str(step.get("describe") or step.get("target") or ""), secrets)
+    return f'{action} "{label}"'
+
+
 def decision_request(
     step: Mapping[str, Any],
     goal: str,
@@ -404,6 +476,8 @@ def decision_request(
     model: str | None = None,
     provider: str = DEFAULT_PROVIDER,
     secrets: set[str] | frozenset[str] = frozenset(),
+    prev_steps: Sequence[str] = (),
+    next_steps: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Build a bounded decision request whose choices are restricted to observed refs only."""
     spec = PROVIDERS.get(provider.strip().lower())
@@ -414,8 +488,22 @@ def decision_request(
     safe_url = redact_text(url, secrets)
     safe_goal = redact_text(goal, secrets)
     safe_target = redact_text(str(step.get("describe") or step["target"]), secrets)
-    context_text = f"Page URL: {safe_url}\nGoal: {safe_goal}"
-    prompt_text = f"Action: {step['action']}\nTarget: {safe_target}\nWhich observed element should this step act on?"
+    context_lines = [f"Page URL: {safe_url}", f"Goal: {safe_goal}"]
+    if prev_steps:
+        safe_prev = " -> ".join(redact_text(str(s), secrets) for s in list(prev_steps)[-3:])
+        context_lines.append(f"Previous steps: {safe_prev}")
+    context_lines.append(f'Current step: {step["action"]} "{safe_target}"')
+    if next_steps:
+        safe_next = " -> ".join(redact_text(str(s), secrets) for s in list(next_steps)[:2])
+        context_lines.append(f"Next steps: {safe_next}")
+    context_text = "\n".join(context_lines)
+    prompt_text = (
+        f"Action: {step['action']}\n"
+        f"Target: {safe_target}\n"
+        "Select the observed element that is a direct synonym or exact match for this step. "
+        "NEVER pick an opposite, destructive, reset, cancel, publish, pay, or unrelated control "
+        f"just because the requested element is absent. Choose {NONE_CHOICE} if no direct match exists."
+    )
     if spec.protocol == "openai":
         choices = [
             {"value": e["ref"], "description": redact_text(describe(e), secrets)} for e in candidates[: MAX_CHOICES - 1]
@@ -433,7 +521,7 @@ def decision_request(
                 {
                     "type": "choice",
                     "name": "element",
-                    "instructions": f"{prompt_text} Choose {NONE_CHOICE} if none matches.",
+                    "instructions": prompt_text,
                     "choices": choices,
                 }
             ],
@@ -450,11 +538,33 @@ def decision_request(
         "questions": {
             "element": {
                 "type": "choice",
-                "instructions": f"{prompt_text} Choose {NONE_CHOICE} if none matches.",
+                "instructions": prompt_text,
                 "criteria": criteria,
             }
         },
     }
+
+
+def _extract_answer_payload(response: Any) -> dict[str, Any] | None:
+    if not isinstance(response, dict):
+        return None
+    if "decisions" in response:
+        decisions = response.get("decisions")
+        if isinstance(decisions, list) and decisions and isinstance(decisions[0], dict):
+            return decisions[0]
+        return None
+    answers = response.get("answers")
+    if isinstance(answers, list):
+        for item in answers:
+            if isinstance(item, dict) and item.get("name") == "element":
+                return item
+        if answers and isinstance(answers[0], dict):
+            return answers[0]
+    elif isinstance(answers, dict) and answers:
+        item = answers.get("element")
+        if isinstance(item, dict):
+            return item
+    return None
 
 
 def chosen_ref(response: Any) -> tuple[str | None, Any]:
@@ -471,6 +581,8 @@ def chosen_ref(response: Any) -> tuple[str | None, Any]:
         choice = decision.get("choice")
         if not isinstance(choice, str) or not choice:
             return None, "missing_choice"
+        if choice == NONE_CHOICE:
+            return None, "abstained"
         return choice, decision.get("confidence")
 
     if "answers" in response or "prompt_feedback" in response:
@@ -503,6 +615,62 @@ def chosen_ref(response: Any) -> tuple[str | None, Any]:
         return choice, answer.get("confidence")
 
     return None, "malformed_response"
+
+
+def chosen_probability(response: Any, choice: str) -> float | None:
+    """Extract the winning choice's calibrated probability (0..1) if returned by the provider."""
+    answer = _extract_answer_payload(response)
+    if not isinstance(answer, dict):
+        return None
+    probs = answer.get("probabilities")
+    if not isinstance(probs, Mapping):
+        return None
+    val = probs.get(choice)
+    if isinstance(val, (int, float)) and not isinstance(val, bool) and math.isfinite(val) and 0.0 <= val <= 1.0:
+        return float(val)
+    return None
+
+
+def _intent_categories(text: str) -> set[str]:
+    if not text:
+        return set()
+    return {name for name, pattern in GUARD_INTENT_PATTERNS.items() if pattern.search(text)}
+
+
+def check_decision_choice(
+    step: Mapping[str, Any],
+    chosen: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    goal: str = "",
+    probability: float | None = None,
+    min_probability: float = MIN_DECISION_PROBABILITY,
+) -> str | None:
+    """Validate a Tier 2 choice with majority probability and deterministic safety/ambiguity guards.
+
+    Returns None if accepted, or a structured rejection reason string to force Tier 3 handoff.
+    """
+    if probability is not None and probability < min_probability:
+        return f"low_probability({probability:.2f}<{min_probability:.2f})"
+
+    requested_text = f"{step.get('target', '')} {step.get('describe', '')}"
+    chosen_name = str(chosen.get("name") or "")
+    extra_intents = _intent_categories(chosen_name) - _intent_categories(requested_text)
+    if extra_intents:
+        return f"guard:intent_mismatch({','.join(sorted(extra_intents))})"
+
+    if step.get("nth") is None and not POSITIONAL_HINT_RE.search(f"{step.get('describe') or ''} {goal}"):
+        norm_name = normalize(chosen_name)
+        if norm_name:
+            sig = (chosen.get("role"), norm_name, tuple(chosen.get("context") or ()))
+            dups = sum(
+                1
+                for item in candidates
+                if (item.get("role"), normalize(str(item.get("name") or "")), tuple(item.get("context") or ())) == sig
+            )
+            if dups > 1:
+                return f"guard:indistinguishable_siblings({dups})"
+    return None
 
 
 def extract_input_tokens(response: Any) -> int:
@@ -1143,3 +1311,54 @@ def resolve_step_settle_s(
     if plan_settle_s is not None:
         return float(plan_settle_s)
     return float(default)
+
+
+def apply_plan_heals(
+    raw_plan: Mapping[str, Any],
+    heals: Sequence[Mapping[str, Any]],
+    *,
+    secrets: set[str] | frozenset[str] = frozenset(),
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return a copy of raw_plan with verified Tier 2 label heals applied safely.
+
+    Never mutates raw_plan, never overwrites {{VAR}} template targets, regex/prefix steps,
+    decide=True steps, or targets containing secret values.
+    """
+    healed: dict[str, Any] = json.loads(json.dumps(raw_plan))
+    steps = healed.get("steps")
+    if not isinstance(steps, list):
+        return healed, []
+    applied: list[dict[str, Any]] = []
+    seen_steps: set[int] = set()
+    for item in heals:
+        idx = item.get("step")
+        new_target = item.get("to")
+        if (
+            not _is_int(idx)
+            or idx < 1
+            or idx > len(steps)
+            or idx in seen_steps
+            or not isinstance(new_target, str)
+            or not new_target.strip()
+        ):
+            continue
+        raw_step = steps[idx - 1]
+        if not isinstance(raw_step, dict):
+            continue
+        if raw_step.get("action") not in ("click", "fill", "check", "select", "upload"):
+            continue
+        if (raw_step.get("match") or "exact") != "exact":
+            continue
+        if raw_step.get("decide") is True:
+            continue
+        old_target = raw_step.get("target")
+        if not isinstance(old_target, str) or "{{" in old_target or "}}" in old_target:
+            continue
+        if normalize(old_target) == normalize(new_target):
+            continue
+        if redact_text(new_target, secrets) != new_target:
+            continue
+        raw_step["target"] = new_target
+        seen_steps.add(idx)
+        applied.append({"step": idx, "from": old_target, "to": new_target})
+    return healed, applied

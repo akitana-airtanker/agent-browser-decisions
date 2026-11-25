@@ -11,15 +11,19 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from agent_browser_decisions.browser import AgentBrowser, quiet_profile
 from agent_browser_decisions.core import (
     DEFAULT_PROVIDER,
+    MIN_DECISION_PROBABILITY,
     append_batch_tail,
+    apply_plan_heals,
     apply_plan_vars,
     build_batch_commands,
+    check_decision_choice,
+    chosen_probability,
     chosen_ref,
     collect_redaction_secrets,
     command_for,
@@ -28,15 +32,18 @@ from agent_browser_decisions.core import (
     document,
     evaluate_verify_output,
     extract_batch_tail,
+    format_step_summary,
     format_stopped_snapshot,
     hash_route,
     match_label,
+    normalize,
     redact_text,
     redact_value,
     resolve_step_settle_s,
     resolve_step_values,
     same_field_value,
     select_tier1_batch,
+    should_enable_decisions,
     should_retry_step,
     url_matches_expected,
     validate_plan,
@@ -126,10 +133,12 @@ class PlanRunner:
         base_url: str | None = None,
         allow_decisions: bool | None = None,
         settle_s: float = 3.0,
+        miss_settle_s: float = 0.5,
         poll_s: float = 0.05,
         verify_poll_s: float = 0.5,
         effect_wait_s: float = 1.0,
         retries: int = 2,
+        min_decision_probability: float = MIN_DECISION_PROBABILITY,
     ) -> None:
         self._browser_factory = browser_factory
         self._decisions_factory = decisions_factory
@@ -141,10 +150,12 @@ class PlanRunner:
         self.base_url = base_url
         self.allow_decisions = allow_decisions
         self.settle_s = settle_s
+        self.miss_settle_s = miss_settle_s
         self.poll_s = poll_s
         self.verify_poll_s = verify_poll_s
         self.effect_wait_s = effect_wait_s
         self.retries = retries
+        self.min_decision_probability = min_decision_probability
 
     def _resolve(
         self,
@@ -156,30 +167,45 @@ class PlanRunner:
         exclude: set[str],
         *,
         allow_decisions: bool = False,
+        decisions_explicitly_disabled: bool = False,
         settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
         snapshot_tracker: _SnapshotTracker | None = None,
         secrets: set[str] | frozenset[str] = frozenset(),
+        prev_steps: Sequence[str] = (),
+        next_steps: Sequence[str] = (),
     ) -> tuple[dict[str, Any] | None, int, dict[str, Any], dict[str, Any]]:
+        disabled_hint = (
+            "Tier 2 disabled by --no-decisions"
+            if decisions_explicitly_disabled
+            else "Tier 2 skipped: no decision API key configured; pass --decisions or set an API key"
+        )
         if mode == "decide" and not allow_decisions:
             page = initial_page if initial_page is not None else browser.observe()
             if snapshot_tracker is not None:
                 snapshot_tracker.record(page)
-            return None, 3, {"reason": "Tier 2 decisions disabled (pass --decisions to enable)"}, page
+            return None, 3, {"reason": disabled_hint}, page
 
         effective_settle = self.settle_s if settle_s is None else settle_s
         deadline = time.perf_counter() + effective_settle
         previous: str | None = initial_page["raw"] if initial_page is not None else None
         last_status: str | None = None
+        stable_since: float | None = None
         while True:
             page = browser.observe()
             if snapshot_tracker is not None:
                 snapshot_tracker.record(page)
+            now = time.perf_counter()
             # Two consecutive identical snapshots mean the page has settled and refs are not shifting.
             stable = previous is not None and page["raw"] == previous
+            if stable:
+                if stable_since is None:
+                    stable_since = now
+            else:
+                stable_since = None
             previous = page["raw"]
             remaining = [e for e in page["elements"] if e["ref"] not in exclude]
-            expired = time.perf_counter() >= deadline
+            expired = now >= deadline
             if mode == "decide":
                 if (stable and compatible(step, remaining)) or expired:
                     break
@@ -190,6 +216,17 @@ class PlanRunner:
                     return element, 1, {}, page
                 if (status == "ambiguous" and stable) or expired:
                     break
+                # On an already-settled static page with a drifted label, fall back to Tier 2
+                # after a short quiet window instead of burning the full 3s settle_s per step.
+                if (
+                    allow_decisions
+                    and step.get("timeout_s") is None
+                    and step.get("nth") is None
+                    and stable_since is not None
+                    and (now - stable_since) >= min(effective_settle, self.miss_settle_s)
+                    and compatible(step, remaining)
+                ):
+                    break
             time.sleep(self.poll_s)
 
         if step.get("nth") is not None:
@@ -198,14 +235,15 @@ class PlanRunner:
         if not candidates:
             return None, 3, {"reason": "no candidates"}, page
         if len(candidates) == 1:
-            if mode == "label":
+            if mode == "decide":
+                return candidates[0], 2, {"single": True}, page
+            if not allow_decisions:
                 return None, 3, {"reason": "no label match (single candidate)"}, page
-            return candidates[0], 2, {"single": True}, page
         if not allow_decisions:
             reason = (
-                "ambiguous label match (Tier 2 disabled; pass --decisions to enable)"
+                f"ambiguous label match ({disabled_hint})"
                 if last_status == "ambiguous"
-                else "no label match (Tier 2 disabled; pass --decisions to enable)"
+                else f"no label match ({disabled_hint})"
             )
             return None, 3, {"reason": reason}, page
 
@@ -220,14 +258,34 @@ class PlanRunner:
                 model=model,
                 provider=provider,
                 secrets=secrets,
+                prev_steps=prev_steps,
+                next_steps=next_steps,
             )
         )
         ref, info = chosen_ref(response)
         if ref:
             chosen = next((e for e in candidates if e["ref"] == ref), None)
-            if chosen is not None:
-                return chosen, 2, {"confidence": info}, page
-            return None, 3, {"reason": f"decision unseen ref {ref}"}, page
+            if chosen is None:
+                return None, 3, {"reason": f"decision unseen ref {ref}"}, page
+            prob = chosen_probability(response, ref)
+            reject_reason = check_decision_choice(
+                step,
+                chosen,
+                candidates,
+                goal=goal,
+                probability=prob,
+                min_probability=self.min_decision_probability,
+            )
+            meta: dict[str, Any] = {"confidence": info}
+            if prob is not None:
+                meta["probability"] = round(prob, 4)
+            if reject_reason is not None:
+                meta["reason"] = f"decision rejected: {reject_reason}"
+                return None, 3, meta, page
+            chosen_norm = normalize(str(chosen.get("name") or ""))
+            if chosen_norm and sum(1 for e in candidates if normalize(str(e.get("name") or "")) == chosen_norm) == 1:
+                meta["_heal_target"] = chosen["name"]
+            return chosen, 2, meta, page
         return None, 3, {"reason": f"decision {info}"}, page
 
     def _changed_since(
@@ -417,9 +475,12 @@ class PlanRunner:
         log: list[dict[str, Any]],
         *,
         allow_decisions: bool = False,
+        decisions_explicitly_disabled: bool = False,
         settle_s: float | None = None,
         initial_page: dict[str, Any] | None = None,
         snapshot_tracker: _SnapshotTracker | None = None,
+        prev_steps: Sequence[str] = (),
+        next_steps: Sequence[str] = (),
     ) -> tuple[bool, dict[str, Any] | None]:
         started = time.perf_counter()
         metrics.reset()
@@ -482,10 +543,13 @@ class PlanRunner:
                 step_mode,
                 excluded,
                 allow_decisions=allow_decisions,
+                decisions_explicitly_disabled=decisions_explicitly_disabled,
                 settle_s=settle_s,
                 initial_page=seed_page,
                 snapshot_tracker=snapshot_tracker,
                 secrets=secrets,
+                prev_steps=prev_steps,
+                next_steps=next_steps,
             )
             seed_page = None
             tiers.append(tier)
@@ -591,6 +655,7 @@ class PlanRunner:
         keep_open: bool = False,
         close_on_success: bool = False,
         allow_decisions: bool | None = None,
+        heal: bool = False,
         settle_s: float | None = None,
         expect_url: str | None = None,
         environ: Mapping[str, str] | None = None,
@@ -598,11 +663,17 @@ class PlanRunner:
         """Validate, resolve vars/env secrets, execute steps, verify, and enforce session/profile cleanup invariants."""
         env_map = os.environ if environ is None else environ
         explicit_flag = allow_decisions if allow_decisions is not None else self.allow_decisions
-        if explicit_flag is not None:
-            use_decisions = bool(explicit_flag)
-        else:
-            use_decisions = bool(mode == "decide" or self.provider or self.model or self.base_url)
+        decisions_explicitly_disabled = explicit_flag is False
+        use_decisions = should_enable_decisions(
+            allow_decisions=explicit_flag,
+            mode=mode,
+            provider=self.provider,
+            model=self.model,
+            base_url=self.base_url,
+            environ=env_map,
+        )
         effective_provider = self.provider if self.provider is not None else env_map.get("DECISION_PROVIDER")
+        raw_plan = plan
         merged_vars: dict[str, str] = {}
         var_problems: list[str] = []
         effective_plan = plan
@@ -786,6 +857,11 @@ class PlanRunner:
                                 continue
                         fused_verified = None
                         fused_url = None
+                        prev_ctx = [
+                            format_step_summary(s, secrets=secrets)
+                            for s in plan["steps"][max(0, index - 4) : index - 1]
+                        ]
+                        next_ctx = [format_step_summary(s, secrets=secrets) for s in plan["steps"][index : index + 2]]
                         step_ok, carried_page = self._run_step(
                             browser,
                             decisions,
@@ -797,6 +873,7 @@ class PlanRunner:
                             secrets,
                             log,
                             allow_decisions=use_decisions,
+                            decisions_explicitly_disabled=decisions_explicitly_disabled,
                             settle_s=resolve_step_settle_s(
                                 step,
                                 plan_settle_s=plan.get("settle_s"),
@@ -805,6 +882,8 @@ class PlanRunner:
                             ),
                             initial_page=carried_page,
                             snapshot_tracker=snapshot_tracker,
+                            prev_steps=prev_ctx,
+                            next_steps=next_ctx,
                         )
                         if not step_ok:
                             completed = False
@@ -905,6 +984,7 @@ class PlanRunner:
                         "chose",
                         "effect",
                         "confidence",
+                        "probability",
                         "reason",
                         "error",
                         "batched",
@@ -915,6 +995,18 @@ class PlanRunner:
                 for e in log
             ],
         }
+        if heal:
+            heal_candidates = [
+                {"step": e["step"], "to": e["_heal_target"]}
+                for e in log
+                if e.get("ok") and e.get("tier") == 2 and e.get("_heal_target")
+            ]
+            if ok and verified is True and heal_candidates:
+                _, applied_heals = apply_plan_heals(raw_plan, heal_candidates, secrets=secrets)
+                if applied_heals:
+                    result["healed"] = applied_heals
+            elif ok and verified is not True and heal_candidates:
+                result["heal_skipped"] = "verify expression required for plan healing"
         if profile:
             result["profile"] = profile
         if not ok and session_open and snapshot_tracker.raw:
@@ -941,6 +1033,7 @@ def run_plan_file(
     model: str | None = None,
     base_url: str | None = None,
     allow_decisions: bool | None = None,
+    heal: bool = False,
     settle_s: float | None = None,
     expect_url: str | None = None,
     environ: Mapping[str, str] | None = None,
@@ -964,6 +1057,7 @@ def run_plan_file(
         keep_open=keep_open,
         close_on_success=close_on_success,
         allow_decisions=allow_decisions,
+        heal=heal,
         settle_s=settle_s,
         expect_url=expect_url,
         environ=environ,

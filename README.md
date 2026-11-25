@@ -11,7 +11,8 @@ Write a declarative JSON plan once, validate it before touching a browser, and e
 ```text
 resolve → act → check effect → verify
   tier 1  deterministic label / regex / nth match on the accessibility snapshot (no model, no API key)
-  tier 2  (opt-in via --decisions) Decision model chooses among observed refs (bounded retries on 429/5xx/529)
+  tier 2  (auto when API key set; --no-decisions to disable) Bounded decision model with workflow context,
+          majority probability gate (p >= 0.50), deterministic safety/ambiguity guards, and optional --heal
   tier 3  unresolved or failed effect → stop cleanly with structured JSON and hand back to caller
 ```
 
@@ -23,7 +24,7 @@ The model only ever chooses an observed `ref`. It never emits selectors, text, o
 
 - [agent-browser](https://github.com/vercel-labs/agent-browser) on `PATH` (`npm i -g agent-browser && agent-browser install`)
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
-- Optional Tier 2 API key (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, or `LIQUID_API_KEY`) — Tier 2 is **off by default** (zero external API calls even if keys exist in your environment) and only runs when explicitly enabled via `--decisions` (or `--mode decide` / `--provider` / `--model` / `--base-url`)
+- Optional Tier 2 API key (`OPENROUTER_API_KEY`, `LIQUID_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `TYPESAFE_API_KEY`) — Tier 2 is **auto-enabled when a provider key is configured** (skipped cleanly with zero API calls when no key is set, or disabled via `--no-decisions`). Default OpenRouter/Liquid model is `liquid/d1.2-ultra` / `d1.2-ultra`
 
 ### Option A: Install globally as a CLI
 
@@ -149,7 +150,7 @@ agent-browser-decisions run plan.json --session abd-1763574000000-12345 --from-s
 ```bash
 agent-browser-decisions doctor [--env-file PATH] [--provider PROVIDER] [--model MODEL] [--base-url URL]
 agent-browser-decisions validate <plan.json | -> [--var KEY=VALUE]...
-agent-browser-decisions run <plan.json | -> [--decisions] [--mode label|decide] [--session NAME] [--from-step N] \
+agent-browser-decisions run <plan.json | -> [--decisions | --no-decisions] [--heal] [--mode label|decide] [--session NAME] [--from-step N] \
                                             [--expect-url URL_PREFIX] [--var KEY=VALUE]... [--no-open] [--reload] [--keep-open] [--close] \
                                             [--provider openai|openrouter|gemini|typesafe|liquid] [--model MODEL] [--base-url URL] \
                                             [--env-file PATH] [--settle-s 3.0] [--timeout 60] [--api-timeout 30]
@@ -171,10 +172,10 @@ python -m agent_browser_decisions --help
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | — | OpenAI Decisions API key (`/v1/decisions`, default model `gpt-6-luna`) |
-| `OPENROUTER_API_KEY` | — | OpenRouter Decisions API key (`/api/alpha/decisions`, default `liquid/d1.2`; supports `google/gemini-decision-1`, `openai/gpt-6-luna-decisions`, `typesafe/jev-1.14`, `:free` models, etc.) |
+| `OPENROUTER_API_KEY` | — | OpenRouter Decisions API key (`/api/alpha/decisions`, default `liquid/d1.2-ultra`; supports `liquid/d1.2`, `google/gemini-decision-1`, `openai/gpt-6-luna-decisions`, `typesafe/jev-1.14`, etc.) |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Google Gemini Decisions API key (`/v1beta/decisions`, default model `gemini-decision-1`) |
 | `TYPESAFE_API_KEY` | — | TypeSafe AI System One API key (`/v1/systemone`, default model `jev-latest`) |
-| `LIQUID_API_KEY` | — | Liquid AI System One API key (`/decisions/v1/systemone`, default model `d1.2`) |
+| `LIQUID_API_KEY` | — | Liquid AI System One API key (`/decisions/v1/systemone`, default model `d1.2-ultra`) |
 | `DECISION_PROVIDER` | auto | `openai`, `openrouter`, `gemini`, `typesafe`, or `liquid` (auto-detected from `--model` / available key when omitted; `vendor/model` IDs infer `openrouter`) |
 | `DECISION_MODEL` | per provider | Override Tier 2 model ID (e.g. `gpt-6-luna`, `gemini-decision-1`, `jev-latest`, `d1.2-ultra`) |
 | `DECISION_API_KEY` | — | Generic Tier 2 API key fallback when a provider-specific key is not set |
@@ -187,12 +188,12 @@ python -m agent_browser_decisions --help
 | Provider | Protocol | Default model | Endpoint | Auth header | Abstention |
 | --- | --- | --- | --- | --- | --- |
 | `openai` | OpenAI Decisions (GA) | `gpt-6-luna` | `https://api.openai.com/v1/decisions` | `Authorization: Bearer` | Explicit `__none__` option + `refusal` |
-| `openrouter` | System One | `liquid/d1.2` | `https://openrouter.ai/api/alpha/decisions` | `Authorization: Bearer` | Explicit `__none__` option + `refusal` |
+| `openrouter` | System One | `liquid/d1.2-ultra` | `https://openrouter.ai/api/alpha/decisions` | `Authorization: Bearer` | Explicit `__none__` option + `refusal` |
 | `gemini` | Gemini Decisions | `gemini-decision-1` | `https://generativelanguage.googleapis.com/v1beta/decisions` | `x-goog-api-key` | Explicit `__none__` option + `prompt_feedback` |
 | `typesafe` | System One | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
-| `liquid` | System One | `d1.2` | `https://api.liquid.ai/decisions/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
+| `liquid` | System One | `d1.2-ultra` | `https://api.liquid.ai/decisions/v1/systemone` | `Authorization: Bearer` | Explicit `__none__` option |
 
-> Note: In `v0.9.10`, all 5 provider wire formats are verified via mock and property tests; live remote endpoint runs were not re-executed for `v0.9.10`.
+> Note: OpenRouter (`liquid/d1.2-ultra`, `liquid/d1.2`, `openai/gpt-6-luna-decisions`, `microsoft/microsoft-decision-1.1`, `google/gemini-decision-1`, `typesafe/jev-1.14`) is verified against live endpoints (28-case benchmark + live 3-screen wizard E2E); all 5 provider wire formats are also covered by mock and property tests.
 
 ## Effect checks
 
@@ -208,7 +209,7 @@ Non-`press` steps wait for a settled page (two consecutive identical snapshots, 
 
 ## Safety & operational guarantees
 
-- **Opt-in Tier 2 & bounded model surface**: Tier 2 is disabled by default so ambient API keys never send page URLs, candidate labels, or visible field values to external endpoints unless you pass `--decisions` (or `--provider` / `--model` / `--base-url` / `--mode decide`). Implicit `./.env` loading is restricted to known API keys, `DECISION_PROVIDER`, and `DECISION_MODEL`; pass `--env-file` or `AGENT_BROWSER_DECISIONS_ENV_FILE` explicitly to load all keys. When enabled, candidate descriptions include visible field values, attributes, and surrounding context — only known resolved `value_env` / `secret: true` strings are redacted, so unknown page secrets or PII can still be sent (confirm page contents and destination endpoint before enabling). Tier 2 only selects from observed, action-compatible `ref` IDs (`<= 255`); unseen refs and malformed API responses fail closed to Tier 3.
+- **Guarded Tier 2 & bounded model surface**: Tier 2 auto-enables when a decision API key is configured and can be force-disabled with `--no-decisions` (without a key, runs stay on Tier 1 with zero external calls). Implicit `./.env` loading is restricted to known API keys, `DECISION_PROVIDER`, and `DECISION_MODEL`; pass `--env-file` or `AGENT_BROWSER_DECISIONS_ENV_FILE` explicitly to load all keys. Every Tier 2 choice must pass three layers: (1) workflow-context prompt (prev/next step summaries without raw filled values), (2) majority probability gate (`p >= 0.50` when probabilities are returned), and (3) deterministic guards blocking unrequested destructive/reset/publish/payment escalations and indistinguishable duplicate siblings. Optional `--heal` writes updated labels back to the plan JSON only when a `verify` expression exists and passes, never overwriting `{{var}}` templates, `regex`/`prefix` steps, or secrets. Because redaction only scrubs known resolved `value_env` / `secret: true` strings, unknown page secrets or PII can still appear in candidate payloads — pass `--no-decisions` on pages where external API calls are undesired.
 - **Unicode & injection safety**: Normalisation preserves non-ASCII scripts (Japanese, CJK, Cyrillic, Greek, dakuten) and rejects empty labels. Snapshot parsing uses escape-aware quoting so embedded `\" [ref=eN]` strings in page text cannot spoof element refs.
 - **Fresh `stopped_snapshot` on stop**: When a run fails after executing an action or on `verify` failure (excluding `--expect-url` mismatches) and the latest observation is stale, the runner re-observes the open session once before returning `stopped_snapshot` (falling back to the last observed snapshot if unreachable) so resuming agents see post-action state.
 - **No silent misclicks or double-clicks**: Label misses and out-of-range `nth` never fall back to a sole unrelated element. `click` and `link` steps execute at most once on the same element by default (no automatic `Enter` fallback or second click unless `retry: true`). Pass `--expect-url` with `--from-step` / `--no-open` to abort before touching any step if the live session drifted to another origin or path.

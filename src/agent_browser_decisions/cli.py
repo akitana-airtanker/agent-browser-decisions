@@ -14,6 +14,7 @@ from agent_browser_decisions.browser import detect_agent_browser, quiet_profile
 from agent_browser_decisions.core import (
     PROVIDER_ORDER,
     PROVIDERS,
+    apply_plan_heals,
     apply_plan_vars,
     parse_dotenv,
     parse_var_args,
@@ -140,7 +141,7 @@ def _add_decision_flags(subparser: argparse.ArgumentParser) -> None:
     )
     subparser.add_argument(
         "--model",
-        help="Tier 2 decision model ID (e.g. gpt-6-luna, liquid/d1.2, google/gemini-decision-1, jev-latest, d1.2)",
+        help="Tier 2 decision model ID (e.g. liquid/d1.2-ultra, gpt-6-luna, google/gemini-decision-1, jev-latest)",
     )
     subparser.add_argument(
         "--base-url",
@@ -218,12 +219,26 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="close --session automatically on success (leaves it open on failure for Tier 3 handoff)",
     )
-    run.add_argument(
+    dec_group = run.add_mutually_exclusive_group()
+    dec_group.add_argument(
         "--decisions",
+        dest="decisions",
+        action="store_true",
+        default=None,
+        help=("force Tier 2 decision model fallback on (default: auto-enabled when a decision API key is configured)"),
+    )
+    dec_group.add_argument(
+        "--no-decisions",
+        dest="decisions",
+        action="store_false",
+        help="disable Tier 2 decision model fallback even when an API key is configured",
+    )
+    run.add_argument(
+        "--heal",
         action="store_true",
         help=(
-            "enable Tier 2 decision model fallback when label matching fails or is ambiguous "
-            "(default: off; implied by --mode decide, --provider, --model, or --base-url)"
+            "write verified Tier 2 label updates back to the plan JSON file "
+            "(only when the plan has a passing verify expression)"
         ),
     )
     run.add_argument("--env-file", help="optional .env file to load missing environment variables from")
@@ -294,8 +309,24 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": not problems, "problems": problems}, ensure_ascii=False, indent=2))
         return 0 if not problems else 2
 
+    if args.heal and args.plan == "-":
+        print(
+            json.dumps(
+                {"ok": False, "problems": ["--heal requires a plan file path, not stdin '-'"]},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+
     load_dotenv_files(args.env_file)
-    use_decisions = bool(args.decisions or args.mode == "decide" or args.provider or args.model or args.base_url)
+    allow_decisions: bool | None
+    if args.decisions is False:
+        allow_decisions = False
+    elif args.decisions is True or args.mode == "decide" or args.provider or args.model or args.base_url:
+        allow_decisions = True
+    else:
+        allow_decisions = None
     result = run_plan_file(
         plan,
         mode=args.mode,
@@ -311,10 +342,23 @@ def main(argv: list[str] | None = None) -> int:
         provider=args.provider,
         model=args.model,
         base_url=args.base_url,
-        allow_decisions=use_decisions,
+        allow_decisions=allow_decisions,
+        heal=args.heal,
         settle_s=args.settle_s,
         expect_url=args.expect_url,
     )
+    if args.heal and result.get("healed") and args.plan != "-":
+        healed_plan, applied = apply_plan_heals(plan, result["healed"])
+        if applied:
+            plan_path = Path(args.plan)
+            tmp_path = plan_path.with_name(f".{plan_path.name}.{os.getpid()}.tmp")
+            try:
+                tmp_path.write_text(json.dumps(healed_plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                os.replace(tmp_path, plan_path)
+            except OSError as write_err:
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
+                result["heal_write_error"] = str(write_err)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("problems"):
         return 2
