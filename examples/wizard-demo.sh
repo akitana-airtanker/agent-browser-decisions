@@ -209,7 +209,7 @@ jq --arg url "$BASE_URL" '.url = $url' "$SCRIPT_DIR/wizard/wizard.json" > "$PLAN
 
 printf '=== 1. Run v1 plan against updated v2 UI ("Next" -> "Continue") ===\n'
 RC=0
-OUT="$(agent-browser-decisions run "$PLAN" --settle-s 0.5)" || RC=$?
+OUT="$(agent-browser-decisions run "$PLAN" --no-decisions --settle-s 0.5)" || RC=$?
 SID="$(extract_owned_session "$OUT")"
 PROF="$(extract_profile "$OUT")"
 if [ -n "$SID" ] && REG_TSV="$(capture_registry "$SID")"; then
@@ -242,7 +242,7 @@ esac
 
 printf '\n=== 2. Prove Step-1 restart with the same one-time code (INVITE-001) fails ===\n'
 RESTART_RC=0
-RESTART_OUT="$(agent-browser-decisions run "$PLAN" --settle-s 0.5)" || RESTART_RC=$?
+RESTART_OUT="$(agent-browser-decisions run "$PLAN" --no-decisions --settle-s 0.5)" || RESTART_RC=$?
 SID_RESTART="$(extract_owned_session "$RESTART_OUT")"
 PROF_RESTART="$(extract_profile "$RESTART_OUT")"
 if [ -n "$SID_RESTART" ] && REG_TSV_RESTART="$(capture_registry "$SID_RESTART")"; then

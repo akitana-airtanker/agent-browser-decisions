@@ -1,0 +1,1313 @@
+{
+  "chrome_for_playwright": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "abd_version": "agent-browser-decisions 0.10.0",
+  "agent_browser_version": "agent-browser 0.41.1",
+  "playwright_version": "1.65.2",
+  "main": {
+    "rounds": 5,
+    "summary": {
+      "httpbin_playwright": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.47,
+        "min_ok_s": 1.4,
+        "max_ok_s": 2.0,
+        "median_all_s": 1.47
+      },
+      "httpbin_batch": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.34,
+        "min_ok_s": 1.32,
+        "max_ok_s": 1.42,
+        "median_all_s": 1.34
+      },
+      "httpbin_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.53,
+        "min_ok_s": 1.48,
+        "max_ok_s": 1.68,
+        "median_all_s": 1.53
+      },
+      "wizard_playwright": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 2.51,
+        "min_ok_s": 2.38,
+        "max_ok_s": 2.59,
+        "median_all_s": 2.51
+      },
+      "wizard_batch_wait": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.53,
+        "min_ok_s": 1.49,
+        "max_ok_s": 1.56,
+        "median_all_s": 1.53
+      },
+      "wizard_abd": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.81,
+        "min_ok_s": 1.77,
+        "max_ok_s": 2.06,
+        "median_all_s": 1.81
+      }
+    },
+    "raw": {
+      "httpbin_playwright": [
+        {
+          "ok": true,
+          "wall_s": 2.005,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.486,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.419,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.401,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.465,
+          "error": null
+        }
+      ],
+      "httpbin_batch": [
+        {
+          "ok": true,
+          "wall_s": 1.328,
+          "session": "bench-hb-batch-52595-4335",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.417,
+          "session": "bench-hb-batch-52595-13354",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.321,
+          "session": "bench-hb-batch-52595-26775",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.343,
+          "session": "bench-hb-batch-52595-35896",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.368,
+          "session": "bench-hb-batch-52595-44857",
+          "error": null
+        }
+      ],
+      "httpbin_abd": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.681,
+          "internal_ms": 1615,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612705832-52636",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.55,
+          "internal_ms": 1494,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612714933-52799",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.532,
+          "internal_ms": 1486,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612723863-52974",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.507,
+          "internal_ms": 1455,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612737394-53195",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.478,
+          "internal_ms": 1420,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612746384-53358",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "wizard_playwright": [
+        {
+          "ok": true,
+          "wall_s": 2.385,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.494,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.545,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.592,
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 2.506,
+          "error": null
+        }
+      ],
+      "wizard_batch_wait": [
+        {
+          "ok": true,
+          "wall_s": 1.562,
+          "session": "bench-wiz-batch-52595-9845",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.487,
+          "session": "bench-wiz-batch-52595-17921",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.555,
+          "session": "bench-wiz-batch-52595-32828",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.527,
+          "session": "bench-wiz-batch-52595-41449",
+          "error": null
+        },
+        {
+          "ok": true,
+          "wall_s": 1.512,
+          "session": "bench-wiz-batch-52595-49278",
+          "error": null
+        }
+      ],
+      "wizard_abd": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.832,
+          "internal_ms": 1774,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612711571-52729",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.805,
+          "internal_ms": 1747,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612719574-52859",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 2.065,
+          "internal_ms": 2000,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612728273-53045",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.767,
+          "internal_ms": 1709,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612743140-53288",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.808,
+          "internal_ms": 1756,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612750946-53471",
+          "session_open": false,
+          "error": null
+        }
+      ]
+    }
+  },
+  "reuse": {
+    "rounds": 5,
+    "summary": {
+      "abd_cold": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.52,
+        "min_ok_s": 1.5,
+        "max_ok_s": 1.52,
+        "median_all_s": 1.52
+      },
+      "abd_reload": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.4,
+        "min_ok_s": 0.38,
+        "max_ok_s": 0.58,
+        "median_all_s": 0.4
+      },
+      "abd_no_open": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.35,
+        "min_ok_s": 0.34,
+        "max_ok_s": 0.35,
+        "median_all_s": 0.35
+      }
+    },
+    "raw": {
+      "abd_cold": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.516,
+          "internal_ms": 1469,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612755259-53540",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.497,
+          "internal_ms": 1451,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612756773-53568",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.524,
+          "internal_ms": 1479,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612758270-53595",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.514,
+          "internal_ms": 1467,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612759797-53633",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.521,
+          "internal_ms": 1477,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612761308-53699",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "abd_reload": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.4,
+          "internal_ms": 351,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612762831-53726",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.38,
+          "internal_ms": 333,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612762831-53726",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.403,
+          "internal_ms": 355,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612762831-53726",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.4,
+          "internal_ms": 349,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612762831-53726",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.585,
+          "internal_ms": 536,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612762831-53726",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "abd_no_open": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.354,
+          "internal_ms": 299,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-52595-0",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.353,
+          "internal_ms": 296,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-52595-1",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.349,
+          "internal_ms": 296,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-52595-2",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.346,
+          "internal_ms": 292,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-52595-3",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.338,
+          "internal_ms": 285,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 7,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "bench-noopen-52595-4",
+          "session_open": false,
+          "error": null
+        }
+      ]
+    }
+  },
+  "drift": {
+    "playwright_default_timeout3s": {
+      "ok": false,
+      "wall_s": 4.389,
+      "error": "  - waiting for get_by_role(\"radio\", name=\"Extra Large\")"
+    },
+    "batch_bail": {
+      "ok": false,
+      "wall_s": 1.164,
+      "session": "bench-drift-batch-52595-78273",
+      "error": "[{\"command\":[\"open\",\"https://httpbin.org/forms/post\"],\"error\":null,\"result\":{\"lifecycle\":{\"effectiveLaunch\":{\"browserLaunched\":true,\"engine\":\"chrome\",\"launchHash\":11677035664275010974},\"launched\":true",
+      "session_kept_custname": "\"Taro Yamada\""
+    },
+    "abd_stop": {
+      "ok": false,
+      "rc": 1,
+      "wall_s": 4.488,
+      "internal_ms": 4440,
+      "tiers": [
+        1,
+        1,
+        1,
+        3
+      ],
+      "batched_steps": 3,
+      "stopped_at_step": 4,
+      "stopped_effect": null,
+      "stopped_reason": "no label match (Tier 2 disabled by --no-decisions)",
+      "session": "abd-1795612779606-53990",
+      "session_open": true,
+      "error": null
+    },
+    "abd_kept_custname": "\"Taro Yamada\"",
+    "abd_resume_from_step_4": {
+      "ok": true,
+      "rc": 0,
+      "wall_s": 0.302,
+      "internal_ms": 253,
+      "tiers": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "batched_steps": 4,
+      "stopped_at_step": null,
+      "stopped_effect": "ok",
+      "stopped_reason": null,
+      "session": "abd-1795612779606-53990",
+      "session_open": false,
+      "error": null
+    },
+    "abd_resume_from_step_5_after_direct_op": {
+      "ok": true,
+      "rc": 0,
+      "wall_s": 0.295,
+      "internal_ms": 247,
+      "tiers": [
+        1,
+        1,
+        1
+      ],
+      "batched_steps": 3,
+      "stopped_at_step": null,
+      "stopped_effect": "ok",
+      "stopped_reason": null,
+      "session": "abd-1795612784442-54094",
+      "session_open": false,
+      "error": null
+    }
+  },
+  "wizard_resume": {
+    "rounds": 5,
+    "summary": {
+      "wizard_stop_step8": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.8,
+        "min_ok_s": 1.71,
+        "max_ok_s": 1.85,
+        "median_all_s": 1.8
+      },
+      "wizard_restart_same_code_rejected": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 2.01,
+        "min_ok_s": 1.9,
+        "max_ok_s": 2.05,
+        "median_all_s": 2.01
+      },
+      "wizard_resume_step8": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 0.58,
+        "min_ok_s": 0.58,
+        "max_ok_s": 0.59,
+        "median_all_s": 0.58
+      },
+      "wizard_restart_fresh_code": {
+        "passed": 5,
+        "total": 5,
+        "median_ok_s": 1.75,
+        "min_ok_s": 1.72,
+        "max_ok_s": 1.84,
+        "median_all_s": 1.75
+      }
+    },
+    "raw": {
+      "wizard_stop_step8": [
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.708,
+          "internal_ms": 1665,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled by --no-decisions)",
+          "session": "abd-1795612789274-54179",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.804,
+          "internal_ms": 1756,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled by --no-decisions)",
+          "session": "abd-1795612797283-54451",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.854,
+          "internal_ms": 1807,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled by --no-decisions)",
+          "session": "abd-1795612801886-54574",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.782,
+          "internal_ms": 1735,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled by --no-decisions)",
+          "session": "abd-1795612810049-54843",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.804,
+          "internal_ms": 1756,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            3
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": 8,
+          "stopped_effect": null,
+          "stopped_reason": "no label match (Tier 2 disabled by --no-decisions)",
+          "session": "abd-1795612814603-54983",
+          "session_open": true,
+          "error": null
+        }
+      ],
+      "wizard_restart_same_code_rejected": [
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 2.013,
+          "internal_ms": 1964,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795612790986-54235",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 2.011,
+          "internal_ms": 1957,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795612799093-54499",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 2.05,
+          "internal_ms": 1994,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795612803749-54653",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.995,
+          "internal_ms": 1945,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795612811837-54889",
+          "session_open": true,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 1,
+          "wall_s": 1.898,
+          "internal_ms": 1846,
+          "tiers": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 3,
+          "stopped_at_step": 4,
+          "stopped_effect": "no_effect",
+          "stopped_reason": null,
+          "session": "abd-1795612816414-55028",
+          "session_open": true,
+          "error": null
+        }
+      ],
+      "wizard_resume_step8": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.587,
+          "internal_ms": 543,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612789274-54179",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.586,
+          "internal_ms": 543,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612797283-54451",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.581,
+          "internal_ms": 538,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612801886-54574",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.581,
+          "internal_ms": 536,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612810049-54843",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 0.58,
+          "internal_ms": 536,
+          "tiers": [
+            1,
+            1
+          ],
+          "batched_steps": 0,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612814603-54983",
+          "session_open": false,
+          "error": null
+        }
+      ],
+      "wizard_restart_fresh_code": [
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.717,
+          "internal_ms": 1675,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612793786-54346",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.777,
+          "internal_ms": 1733,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612795505-54396",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.754,
+          "internal_ms": 1712,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612806573-54732",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.718,
+          "internal_ms": 1674,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612808330-54789",
+          "session_open": false,
+          "error": null
+        },
+        {
+          "ok": true,
+          "rc": 0,
+          "wall_s": 1.845,
+          "internal_ms": 1796,
+          "tiers": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "batched_steps": 6,
+          "stopped_at_step": null,
+          "stopped_effect": "ok",
+          "stopped_reason": null,
+          "session": "abd-1795612819092-55103",
+          "session_open": false,
+          "error": null
+        }
+      ]
+    }
+  }
+}

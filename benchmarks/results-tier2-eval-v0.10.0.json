@@ -1,0 +1,129 @@
+{
+  "abd_version": "agent-browser-decisions 0.10.0",
+  "provider": "openrouter",
+  "cases": {
+    "total": 28,
+    "suite1_standard": 16,
+    "suite2_adversarial": 12,
+    "positive": 15,
+    "must_abstain_trap": 13
+  },
+  "summary_28_cases": {
+    "liquid/d1.2-ultra": {
+      "M0": {
+        "correct": 24,
+        "total": 28,
+        "danger": 1,
+        "latency_p50_ms": 446,
+        "suite1_cost_usd": 0.00012
+      },
+      "M1": {
+        "correct": 27,
+        "total": 28,
+        "danger": 1,
+        "latency_p50_ms": 435,
+        "suite1_cost_usd": 0.000162
+      },
+      "M1+Guards+P50": {
+        "correct": 28,
+        "total": 28,
+        "danger": 0,
+        "latency_p50_ms": 435,
+        "suite1_cost_usd": 0.000162
+      }
+    },
+    "liquid/d1.2": {
+      "M0": {
+        "correct": 24,
+        "total": 28,
+        "danger": 2,
+        "latency_p50_ms": 446,
+        "suite1_cost_usd": 5.7e-05
+      },
+      "M1": {
+        "correct": 27,
+        "total": 28,
+        "danger": 1,
+        "latency_p50_ms": 440,
+        "suite1_cost_usd": 7.7e-05
+      },
+      "M1+Guards+P50": {
+        "correct": 28,
+        "total": 28,
+        "danger": 0,
+        "latency_p50_ms": 440,
+        "suite1_cost_usd": 7.7e-05
+      }
+    },
+    "microsoft/microsoft-decision-1.1": {
+      "M0": {
+        "correct": 23,
+        "total": 28,
+        "danger": 1,
+        "latency_p50_ms": 406,
+        "suite1_cost_usd": 0.000125
+      },
+      "M1": {
+        "correct": 25,
+        "total": 28,
+        "danger": 2,
+        "latency_p50_ms": 405,
+        "suite1_cost_usd": 0.000167
+      },
+      "M1+Guards+P50": {
+        "correct": 27,
+        "total": 28,
+        "danger": 0,
+        "latency_p50_ms": 405,
+        "suite1_cost_usd": 0.000167
+      }
+    },
+    "openai/gpt-6-luna-decisions": {
+      "M0": {
+        "correct": 20,
+        "total": 28,
+        "danger": 1,
+        "latency_p50_ms": 421,
+        "suite1_cost_usd": 0.000422
+      },
+      "M1": {
+        "correct": 25,
+        "total": 28,
+        "danger": 1,
+        "latency_p50_ms": 402,
+        "suite1_cost_usd": 0.000523
+      },
+      "M1+Guards+P50": {
+        "correct": 26,
+        "total": 28,
+        "danger": 0,
+        "latency_p50_ms": 402,
+        "suite1_cost_usd": 0.000523
+      }
+    }
+  },
+  "summary_suite1_only_models": {
+    "google/gemini-decision-1": {
+      "M1": {
+        "correct": 13,
+        "total": 16,
+        "danger": 0,
+        "latency_p50_ms": 463
+      }
+    },
+    "typesafe/jev-1.14": {
+      "M1": {
+        "correct": 13,
+        "total": 16,
+        "danger": 0,
+        "latency_p50_ms": 295
+      }
+    }
+  },
+  "add_to_cart_4x_m1_raw_probabilities": {
+    "liquid/d1.2-ultra": 0.3912,
+    "liquid/d1.2": 0.6886,
+    "openai/gpt-6-luna-decisions": 0.87,
+    "microsoft/microsoft-decision-1.1": 0.7518
+  }
+}

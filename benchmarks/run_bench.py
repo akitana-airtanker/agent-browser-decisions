@@ -155,7 +155,7 @@ def run_abd(
     *,
     expect_closed: bool = True,
 ) -> dict:
-    cmd = ["agent-browser-decisions", "run", str(plan_path), *(extra_args or [])]
+    cmd = ["agent-browser-decisions", "run", str(plan_path), "--no-decisions", *(extra_args or [])]
     t0 = time.perf_counter()
     r = subprocess.run(cmd, capture_output=True, check=False, text=True, timeout=60, env=_clean_env())
     dt = time.perf_counter() - t0

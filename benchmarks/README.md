@@ -26,5 +26,11 @@ Every method in the `main` suite is measured end-to-end as wall-clock time from 
 ## Running
 
 ```bash
-uv run --with playwright python benchmarks/run_bench.py --suite all --rounds 5 --out benchmarks/results-v0.9.10.json
+uv run --with playwright python benchmarks/run_bench.py --suite all --rounds 5 --out benchmarks/results-v0.10.0.json
 ```
+
+### Tier 2 & `--heal` artifacts (`v0.10.0`)
+
+- `benchmarks/results-v0.10.0.json`: 5-round CLI comparison (`main`, `reuse`, `drift`, `wizard_resume`) with `--no-decisions` (Tier 1 / Tier 3 baseline).
+- `benchmarks/results-tier2-v0.10.0.json`: 5-round live Chrome + OpenRouter (`liquid/d1.2-ultra`) E2E on the local 3-screen wizard (baseline Tier 1, 1-label drift `--heal`, 3-label drift `--heal`, Run 2 Tier 1 return, and missing-target abstention trap).
+- `benchmarks/results-tier2-eval-v0.10.0.json`: 28-case OpenRouter decision-model evaluation across 4 models × mechanisms (`M0`, `M1`, `M1 + Guards + P50`) plus Suite 1 reference models.

@@ -1,0 +1,561 @@
+{
+  "abd_version": "agent-browser-decisions 0.10.0",
+  "agent_browser_version": "agent-browser 0.41.1",
+  "provider": "openrouter",
+  "model": "liquid/d1.2-ultra",
+  "rounds": 5,
+  "summary": {
+    "s1_tier1_baseline": {
+      "n": 5,
+      "ok_count": 5,
+      "wall_s_median": 1.738,
+      "wall_s_min": 1.699,
+      "wall_s_max": 1.77,
+      "elapsed_ms_median": 1691
+    },
+    "s2_drift1_step8_heal": {
+      "n": 5,
+      "ok_count": 5,
+      "wall_s_median": 2.908,
+      "wall_s_min": 2.792,
+      "wall_s_max": 3.177,
+      "elapsed_ms_median": 2855
+    },
+    "s3_drift3_multi_heal": {
+      "n": 5,
+      "ok_count": 5,
+      "wall_s_median": 5.116,
+      "wall_s_min": 4.973,
+      "wall_s_max": 5.432,
+      "elapsed_ms_median": 5064
+    },
+    "s4_healed_run2_tier1": {
+      "n": 5,
+      "ok_count": 5,
+      "wall_s_median": 1.758,
+      "wall_s_min": 1.707,
+      "wall_s_max": 2.016,
+      "elapsed_ms_median": 1714
+    },
+    "s5_live_trap_abstain": {
+      "n": 5,
+      "ok_count": 5,
+      "wall_s_median": 1.975,
+      "wall_s_min": 1.931,
+      "wall_s_max": 2.368,
+      "elapsed_ms_median": 1912
+    }
+  },
+  "raw": {
+    "s1_tier1_baseline": [
+      {
+        "round": 1,
+        "ok": true,
+        "wall_s": 1.77,
+        "elapsed_ms": 1722,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 2,
+        "ok": true,
+        "wall_s": 1.735,
+        "elapsed_ms": 1689,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 3,
+        "ok": true,
+        "wall_s": 1.738,
+        "elapsed_ms": 1691,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 4,
+        "ok": true,
+        "wall_s": 1.699,
+        "elapsed_ms": 1653,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 5,
+        "ok": true,
+        "wall_s": 1.756,
+        "elapsed_ms": 1705,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "s2_drift1_step8_heal": [
+      {
+        "round": 1,
+        "ok": true,
+        "wall_s": 3.177,
+        "elapsed_ms": 3119,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 8,
+            "from": "Next",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 2,
+        "ok": true,
+        "wall_s": 2.812,
+        "elapsed_ms": 2761,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 8,
+            "from": "Next",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 3,
+        "ok": true,
+        "wall_s": 2.954,
+        "elapsed_ms": 2904,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 8,
+            "from": "Next",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 4,
+        "ok": true,
+        "wall_s": 2.792,
+        "elapsed_ms": 2742,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 8,
+            "from": "Next",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 5,
+        "ok": true,
+        "wall_s": 2.908,
+        "elapsed_ms": 2855,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 8,
+            "from": "Next",
+            "to": "Continue"
+          }
+        ]
+      }
+    ],
+    "s3_drift3_multi_heal": [
+      {
+        "round": 1,
+        "ok": true,
+        "wall_s": 5.007,
+        "elapsed_ms": 4950,
+        "tiers": [
+          2,
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 1,
+            "from": "Full name",
+            "to": "Display name:"
+          },
+          {
+            "step": 4,
+            "from": "Continue",
+            "to": "Verify & continue"
+          },
+          {
+            "step": 8,
+            "from": "Proceed",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 2,
+        "ok": true,
+        "wall_s": 5.116,
+        "elapsed_ms": 5064,
+        "tiers": [
+          2,
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 1,
+            "from": "Full name",
+            "to": "Display name:"
+          },
+          {
+            "step": 4,
+            "from": "Continue",
+            "to": "Verify & continue"
+          },
+          {
+            "step": 8,
+            "from": "Proceed",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 3,
+        "ok": true,
+        "wall_s": 4.973,
+        "elapsed_ms": 4922,
+        "tiers": [
+          2,
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 1,
+            "from": "Full name",
+            "to": "Display name:"
+          },
+          {
+            "step": 4,
+            "from": "Continue",
+            "to": "Verify & continue"
+          },
+          {
+            "step": 8,
+            "from": "Proceed",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 4,
+        "ok": true,
+        "wall_s": 5.432,
+        "elapsed_ms": 5381,
+        "tiers": [
+          2,
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 1,
+            "from": "Full name",
+            "to": "Display name:"
+          },
+          {
+            "step": 4,
+            "from": "Continue",
+            "to": "Verify & continue"
+          },
+          {
+            "step": 8,
+            "from": "Proceed",
+            "to": "Continue"
+          }
+        ]
+      },
+      {
+        "round": 5,
+        "ok": true,
+        "wall_s": 5.296,
+        "elapsed_ms": 5238,
+        "tiers": [
+          2,
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          2,
+          1
+        ],
+        "healed": [
+          {
+            "step": 1,
+            "from": "Full name",
+            "to": "Display name:"
+          },
+          {
+            "step": 4,
+            "from": "Continue",
+            "to": "Verify & continue"
+          },
+          {
+            "step": 8,
+            "from": "Proceed",
+            "to": "Continue"
+          }
+        ]
+      }
+    ],
+    "s4_healed_run2_tier1": [
+      {
+        "round": 1,
+        "ok": true,
+        "wall_s": 2.016,
+        "elapsed_ms": 1959,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 2,
+        "ok": true,
+        "wall_s": 1.743,
+        "elapsed_ms": 1698,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 3,
+        "ok": true,
+        "wall_s": 1.768,
+        "elapsed_ms": 1726,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 4,
+        "ok": true,
+        "wall_s": 1.758,
+        "elapsed_ms": 1714,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "round": 5,
+        "ok": true,
+        "wall_s": 1.707,
+        "elapsed_ms": 1663,
+        "tiers": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "s5_live_trap_abstain": [
+      {
+        "round": 1,
+        "ok": true,
+        "wall_s": 1.945,
+        "elapsed_ms": 1885,
+        "stopped_at_step": 2,
+        "reason": "decision abstained"
+      },
+      {
+        "round": 2,
+        "ok": true,
+        "wall_s": 1.975,
+        "elapsed_ms": 1912,
+        "stopped_at_step": 2,
+        "reason": "decision abstained"
+      },
+      {
+        "round": 3,
+        "ok": true,
+        "wall_s": 1.931,
+        "elapsed_ms": 1869,
+        "stopped_at_step": 2,
+        "reason": "decision abstained"
+      },
+      {
+        "round": 4,
+        "ok": true,
+        "wall_s": 2.368,
+        "elapsed_ms": 2307,
+        "stopped_at_step": 2,
+        "reason": "decision abstained"
+      },
+      {
+        "round": 5,
+        "ok": true,
+        "wall_s": 1.997,
+        "elapsed_ms": 1935,
+        "stopped_at_step": 2,
+        "reason": "decision abstained"
+      }
+    ]
+  }
+}
