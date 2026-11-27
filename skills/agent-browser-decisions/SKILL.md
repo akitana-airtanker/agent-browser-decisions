@@ -139,6 +139,7 @@ agent-browser-decisions run "$TMPDIR_PLAN/plan.json" --var name="Hanako Sato" --
   - Cookie 同意などの重なりで `Element is covered by ...` になったら、閉じた後に必ず `snapshot -i` を取り直す（再描画で `@eN` が変わる）。`href="javascript:void(0)"` のリンクは `open` せずクリックする。
   - 原稿どおりの文を入れる欄では、1回入力したら表示値（リッチテキストでは本文）を読み戻して照合する。不一致でも繰り返し入力せず（追記重複の原因）、実際に編集可能な要素を調べ直す。
 - **直接操作でのログインとプロファイル**:
-  - ログインを伴う直接操作では、パスワード管理のポップアップが操作を奪うのを防ぐため、`PROFILE="$(agent-browser-decisions profile)"` で作った一時プロファイルを `--profile "$PROFILE"` に渡す（`agent-browser --session <id> close` が終了コード `0` を返し、同一レジストリの `session info --json` と `session list --json` で終了を確認してから `rm -rf "$PROFILE"` で掃除する）。
-  - 普段のブラウザのログイン状態（`--profile Default`）は OS の保護やパス差異で読めないことが多い。最初から `--headed` を付けて開き、ログインは利用者に画面で行ってもらう（`--headed` と `--profile "$PROFILE"` は併用できる）。
+  - ユーザー環境（`AGENTS.md` / `CLAUDE.md` など）にログイン用の恒久プロファイルや起動オプションの指定がある場合は、それを最優先で使い、一時プロファイルを作り直したり恒久プロファイルを削除したりしない。
+  - そのような指定がない場合のみ、パスワード管理のポップアップが操作を奪うのを防ぐため、`PROFILE="$(agent-browser-decisions profile)"` で作った一時プロファイルを `--profile "$PROFILE"` に渡す（`agent-browser --session <id> close` が終了コード `0` を返し、同一レジストリの `session info --json` と `session list --json` で終了を確認してから `rm -rf "$PROFILE"` で掃除する）。
+  - 普段のブラウザのログイン状態（`--profile Default`）は OS の保護やパス差異で読めないことが多い。最初から `--headed` を付けて開き、ログインは利用者に画面で行ってもらう（`--headed` と `--profile "$PROFILE"` は併用できる）。ただし Google アカウント（`accounts.google.com`）など自動制御ブラウザからの新規ログインを拒否するサイトでは、素の一時プロファイルでログイン画面を開いても「このブラウザまたはアプリは安全でない可能性があります」で弾かれるため、一時プロファイルでの新規ログインは案内せず、ログイン済みの恒久プロファイル・普段のブラウザでの操作・または `--auto-connect` など対応する手順に切り替える。
 - **後片付け**: 自分が開いた `--session` だけを閉じる。`close --all` は他の作業のセッションも閉じるため使わない。
